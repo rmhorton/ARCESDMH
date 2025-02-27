@@ -1,0 +1,255 @@
+---
+title: 'Chapter 7: Evidence synthesis in a decision modelling framework.'
+author: "Bob"
+date: "2025-02-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load_libraries}
+library('rjags')
+library('coda')
+library('jagshelper')
+library('jagsUI')
+library('mcmcplots')  # caterplot
+library('dplyr')
+
+setwd("~/Documents/projects/Healthcare_Technology_Assessment/ARSCESDMH")
+```
+
+# `caesarean_section_example_odc.txt`
+
+The code from this document fixes a problem with the original initial values from WinBUGS not working in JAGS. The first set of initial parameter values results in this error:
+```
+Error in `rjags::jags.model()`:
+! Error in node ce.ratio
+Invalid parent values
+```
+unless you change the values of `p1` and `beta` to 1e-6 instead of 0.
+
+```{r caesarean_section_example_odc}
+
+
+# Model
+
+model_code <- "model
+{
+
+# META-ANALYSIS ADJUSTING FOR BASELINE RISK
+
+ for( i in 1 : Num) 
+	{
+		rc[i] ~ dbin(pc[i], nc[i])
+		rt[i] ~ dbin(pt[i], nt[i])	
+		logit(pc[i]) <- mu[i]
+		logit(pt[i]) <- mu[i] + delta[i] 
+		delta[i] <- delta.star[i]+ beta * (mu[i]-(-1.09))
+		mu[i] ~ dnorm(0.0,1.0E-3)
+		delta.star[i] ~ dnorm(d, prec)
+	}	
+
+	d ~ dnorm(0.0,1.0E-6)
+	OR <- exp(d)	
+	d.pred ~ dnorm(d,prec)
+	beta ~ dnorm(0.0,1.0E-6)
+
+	tau ~ dunif(0,10)
+	tau.sq <- tau*tau
+	prec <- 1/tau.sq
+
+# DEVIANCE CONTRIBUTION
+
+ for( i in 1 : Num) 
+	{      
+       rthat[i] <- pt[i] * nt[i] 
+       dev[i] <- 2 * (rt[i] * (log(rt[i])-log(rthat[i]))  +  (nt[i]-rt[i]) * (log(nt[i]-rt[i]) - log(nt[i]-rthat[i])))
+	}
+	
+	sumdev<-sum(dev[])
+	
+#DATA FOR DECISION MODEL	
+
+#Probability of wound infection without antibiotics
+	rc1 ~ dbin(p1,nc1)
+	p1 ~ dbeta(1,1)
+	
+#Probability of wound infection with antibiotics
+	logit(p2) <- logit(p1) + d + beta*(logit(p1)-(-1.09))
+#Length of stay in hospital with wound infection
+	loswd ~ dnorm(mnloswd,precwd)  
+	precwd <- 1/pow(sdloswd/sqrt(numwd),2)		
+#Length of stay in hospital without wound infection	
+	losnwd ~ dnorm(mnlosnwd,precnwd)  
+	precnwd <- 1/pow(sdlosnwd/sqrt(numnwd),2)	
+	
+#Antibiotics administration costs	
+	drugadmin ~ dunif(4,10)
+	
+#QALYs - wound infection
+	QALYs.wd <- ((QALYwd/365)*loswd)+((Fullhealth/365)*(fllwupdays-loswd))
+#QALYs - no wound infection
+	QALYs.nwd <- ((QALYnwd/365)*losnwd)+((Fullhealth/365)*(fllwupdays-losnwd))
+	
+
+#DECISION MODEL	
+
+#Cost with prophylactic antibiotics									
+	cst.trt <- (1-p2) * ((antibiotic+drugadmin) * 3 + (losnwd*inptnwd)) + p2 * ((antibiotic+drugadmin) * 3 + (loswd * inptwd))
+#Cost without prophylactic antibiotics
+	cst.ctl <- (1-p1) * (losnwd*inptnwd) + p1 * (loswd*inptwd)		
+#Difference in cost		
+	diff.cost <- cst.trt - cst.ctl
+	
+#Number of wound infections avoided using prophylactic antibiotics
+	diff.wd <- (nc1 * (p1 - p2))
+
+#QALYs - with prophylactic antibiotics	
+	QALYs.trt <- (1-p2) * QALYs.nwd+p2 * QALYs.wd
+#QALYs - without prophylactic antibiotics	
+	QALYs.ctl <- (1-p1) * QALYs.nwd+p1 * QALYs.wd
+#Difference in QALYs	
+	diff.QALYs <- (QALYs.trt - QALYs.ctl)
+
+#Probability using prophylactic antibiotics costs less than not using prophylactic antibiotics
+	Q <- step(cst.ctl - cst.trt)
+
+#Cost effectiveness ratio
+	ce.ratio <- diff.cost/diff.wd	
+	cu.ratio <- diff.cost/diff.QALYs			
+
+#INCREMENTAL NET BENEFIT
+
+for (k in 1:M) 
+	{
+		Rc1[k] <- (k-1) * 2000
+		INB.QALYs[k] <- Rc1[k] * diff.QALYs - diff.cost		
+		ProbCU[k] <- step(INB.QALYs[k])
+	 }
+}
+" %>% textConnection
+
+
+# Data
+
+data <- list(
+  Num = 35, 
+  rc1=41, 
+  nc1=486, 
+  inptwd=163.03, 
+  inptnwd=107.26, 
+  mnloswd=8.8, 
+  sdloswd=3.5, 
+  mnlosnwd=6.7,  
+  sdlosnwd=7.1, 
+  numwd=41, 
+  numnwd=445, 
+  antibiotic=5.67, 
+  M=21, 
+  QALYwd=0.68, 
+  QALYnwd=0.88, 
+  Fullhealth=1, 
+  fllwupdays=20
+)
+
+data_df <- "rt	nt	rc	nc
+4	133	28	136
+2	68	1	56
+5	55	8	55
+3	100	0	33
+4	183	3	44
+0	46	4	55
+0	119	1	39
+2	60	6	30
+1	46	1	49
+0	50	2	50
+1	43	1	47
+0	80	3	80
+2	196	14	190
+2	124	2	58
+2	74	8	78
+4	167	5	140
+0	48	2	49
+0	102	1	99
+0	85	3	43
+6	136	16	130
+0	74	2	74
+2	61	2	61
+3	146	9	132
+1	64	7	65
+0	16	1	16
+2	31	6	37
+1	50	2	49
+2	26	0	27
+3	133	12	66
+6	244	17	117
+1	52	2	61
+2	43	4	50
+2	48	3	45
+3	40	1	40
+1	50	4	50" %>% read.delim(text=., sep='\t')
+
+for (colname in names(data_df)){
+  data[[colname]] <- data_df[[colname]]
+}
+
+# Starting/initial values
+
+initial_values <- list(
+  list(
+    tau=1,
+    delta.star=c(0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0),
+    d=0,
+    mu=c(0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0),
+    p1=1e-6, # 1e-6 works, 0.0 does not
+    beta=1e-6  # 1e-6 works, 0.0 does not
+  ),
+  
+  list(
+    tau=0.1,
+    delta.star=c(1,1,1,1,1,1,1,1,1,1, 1,1,1,1,1,1,1,1,1,1, 1,1,1,1,1,1,1,1,1,1, 1,1,1,1,1),
+    d=1, 
+    mu = c(1,1,1,1,1,1,1,1,1,1, 1,1,1,1,1,1,1,1,1,1, 1,1,1,1,1,1,1,1,1,1, 1,1,1,1,1), 
+    p1=0.5, 
+    beta=1)
+)
+
+parameters_to_save <- c("ProbCU","diff.QALYs","diff.cost","OR",
+                        "beta","ce.ratio","cu.ratio","p1","p2",
+                        "sumdev","tau.sq")
+
+```
+
+
+```{r run_jags_caesarean, eval=TRUE}
+results <- jags(data = data,
+            inits = initial_values,
+            parameters.to.save = parameters_to_save[1:3],
+            model.file = model_code,
+            n.chains = length(initial_values),
+            n.adapt = 100,
+            n.iter = 50000,
+            n.burnin = 20000,
+            n.thin = 2)
+
+summary(results)
+
+plot(results)
+```
+
+## Plot Me
+
+ScatterPlot (CE Acceptability curve): 
+					ProbCU vs Rc1
+				
+Correlation Scatterplot (CE plane):
+					diff.QALYs vs diff.cost
+					
+Coda (input into Excel to produce CE plane):
+					diff.QALYs
+					diff.cost
+
+Summary stats (input into Excel to produce CEAC):
+					ProbCU

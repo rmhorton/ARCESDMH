@@ -1,0 +1,125 @@
+---
+title: 'Chapter 3: Introduction to Decision Models'
+author: "Bob"
+date: "2025-02-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load_libraries, warn=FALSE, message=FALSE}
+library('rjags')
+library('coda')
+library('jagshelper')
+library('jagsUI')
+library('mcmcplots')  # caterplot
+library('dplyr')
+```
+
+
+# `Model_1_decision_model_odc.txt`
+
+"No updates are required for this model; just load data and compile, then obtain values for costtrt, costctl and diff using the node tool from the info menu"
+
+```{r model_1_decision_model}
+
+model_code <- "model
+{ 
+
+  #DECISION MODEL
+  costtrt<-((1-p2) *(cdoc+cdrug) +p2* (cdoc+(cdrug)+cflu))
+  costctl<-((1-p1)*(cdoc)+p1*(cdoc+cflu))
+  diff.cost<-costtrt-costctl
+
+}" %>% textConnection
+
+#DATA
+
+data <- list(
+  cdrug=118,   			 #cost of neuraminidase treatment
+  cdoc=19, 					 #cost of visit to GP
+  cflu=100, 				 #cost of treating flu
+  p1=0.05,					 #probability of contracting flu under standard care
+  p2=0.03					   #probability of contracting flu under NI prophylaxis				   
+)
+
+#RESULTS
+
+results <- jags(
+  data = data,
+  # inits = NA,
+  parameters.to.save = c("cdrug", "cdoc", "cflu", "p1", "p2",
+                         "costtrt", "costctl", "diff.cost"),
+  model.file = model_code,
+  n.chains = 1,
+  n.iter=1
+)
+
+
+results
+
+```
+
+
+# `meta_analysis_odc.txt`
+
+NI Meta-Analysis
+
+```{r meta_analysis_odc}
+
+model_code <- "model { 
+
+  # META-ANALYSIS OF EFFECTIVENESS - ODDS RATIO (OR)
+
+  for( j in 1 : Num ) 
+    {
+      rc[j] ~ dbin(pc[j], nc[j])
+      rt[j] ~ dbin(pt[j], nt[j])
+      logit(pc[j]) <- mu[j]
+      logit(pt[j]) <- mu[j]+delta[j]
+      delta[j] ~ dnorm(d,prec)	
+      mu[j] ~ dnorm(0.0,1.0E-6)		
+    }
+	
+  # PRIOR DISTRIBUTIONS
+  
+  d ~ dnorm(0.0,1.0E-6)
+  tau ~ dunif(0,10)
+  tau.sq<-tau*tau
+  prec<-1/tau.sq
+  	
+  # ODDS RATIO
+  
+  or <- exp(d)
+
+}" %>% textConnection
+
+# DATA
+data <- list(
+  rt=c(3,3,11,7,3),  nt=c(268,252,553,414,144),   	# Trial data - treatment arm
+  rc=c(19,6,34,40,9),  nc=c(268,251,554,423,144),   # Trial data - standard care arm
+  Num = 5						                                # number of studies in the meta-analysis
+)
+
+# INITIAL VALUES: This is a list of lists, one per chain.
+initial_values <- list(
+  list(tau=1, d=0, mu=c(0,0,0,0,0), delta=c(0,0,0,0,0))
+)
+
+results <- jags(data = data,
+            inits = initial_values,
+            parameters.to.save = c("d", "tau", "or"),
+            model.file = model_code,
+            n.chains = length(initial_values),
+            n.adapt = 100,
+            n.iter = 50000,
+            n.burnin = 20000,
+            n.thin = 2)
+
+summary(results)
+
+plot(results)
+
+```
