@@ -1,0 +1,256 @@
+---
+title: 'Chapter 8: Multi-parameter evidence synthesis'
+author: "Bob"
+date: "2025-02-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r load_libraries, warning=FALSE, message=FALSE}
+library('rjags')
+library('coda')
+library('jagshelper')
+library('jagsUI')
+library('mcmcplots')  # caterplot
+library('dplyr')
+```
+
+# `maple_syrup_example`
+
+CONFIDENCE PROFILE EXAMPLE: Maple Syrup Urine Disease
+
+__Objective__: To estimate the probability of retardation for a case of MSUD without screening (theta.n), & change in retardation rate associated with screening (e.d)
+
+
+```{r maple_syrup_example}
+
+
+# Model
+
+model_code <- "model
+{
+
+  #All data assumed to arise from binomial distributions with the appropriate parameters
+   
+   r.r ~ dbin(r, n.r)
+   r.s ~ dbin(phi.s, n.s)
+   r.n ~ dbin(phi.n, n.n)
+   r.em ~ dbin(theta.em, n.em)
+   r.lm ~ dbin(theta.lm, n.lm)  
+
+  #Define functional relationships
+	# Prob retardation for a case of MSUD who is screened
+  	 theta.sm <- phi.s * theta.em + (1 - phi.s)*theta.lm
+
+	# Prob retardation for a case of MSUD who is NOT screened				
+  	 theta.nm <- phi.n * theta.em + (1 - phi.n) * theta.lm	
+
+ 	# Expected retardation per 100000 newborns who are screened
+  	 theta.s <- (theta.sm * r) * 100000
+
+ 	# Expected retardation per 100000 newborns who are NOT screened							
+  	 theta.n <- (theta.nm * r) * 100000
+
+   
+  # Change in retardation rate associated with screening
+
+  e.d <- theta.s - theta.n
+
+
+  # Prior distributions - 'non-informative' Beta(1,1) priors
+
+   r ~ dbeta( 1, 1)
+   phi.s ~ dbeta( 1, 1)
+   phi.n ~ dbeta( 1, 1)
+   theta.em ~ dbeta( 1, 1)
+   theta.lm ~ dbeta( 1, 1)
+
+}
+" %>% textConnection
+
+
+# Data
+
+data <- list( 
+  n.r = 724262, 
+  r.r = 7, 
+  n.s = 276, 
+  r.s = 253, 
+  n.n = 18, 
+  r.n = 8,  
+  n.em=10, 
+  r.em = 2, 
+  n.lm = 10, 
+  r.lm = 10)
+
+
+# Starting/initial values
+
+
+
+parameters_to_save <- c("e.d") # What else?
+
+
+results <- jags(data = data,
+            # inits = initial_values,
+            parameters.to.save = parameters_to_save,
+            model.file = model_code,
+            n.chains = 1, # length(initial_values),
+            n.adapt = 100,
+            n.iter = 50000,
+            n.burnin = 20000,
+            n.thin = 2)
+
+summary(results)
+
+plot(results)
+```
+
+## `hivepi_6`
+
+Simple version of the HIV Epi model with just 6 data points.
+
+
+```{r hivepi_6}
+
+
+# Model
+
+model_code <- "model{
+#  SET PRIORS   
+   a ~ dbeta( 1,2)            
+   z ~ dbeta (1,1)      
+   b <- z * (1-a)             #  sets constraint (1-a-b > 0)       
+   c ~ dbeta (1,1)             
+   d ~ dbeta (1,1)             
+   e ~ dbeta (1,1)            
+
+# VECTOR p[1:6] HOLDS THE EXPECTED PROBABILITIES FOR EACH DATA POINT
+   p[1] <- a
+   p[2] <- b
+   p[3] <- c
+   p[4] <- d
+   p[5] <- (d*b + e*(1-a-b))/(1- a)
+   p[6] <- c*a + d*b + e*(1-a-b) 
+    
+#  LIKELIHOOD AND DIAGNOSTICS
+   for(i in 1: 6) {
+       r[i] ~ dbin(p[i],n[i])                                                                                                      
+       rhat[i] <- p[i] * n[i]                                                                                                                    
+       dev[i] <- 2 * (r[i] * log(r[i]/rhat[i])  +  (n[i]-r[i]) * log((n[i]-r[i])/(n[i]-rhat[i])))    
+    } 
+    resdev <- sum(dev[])                                                                                                         
+}
+" %>% textConnection
+
+
+# Data
+
+data <- list( 
+  r=c(11044, 12, 252, 10, 74, 254),
+  n=c(104577, 882, 15428, 473, 136139, 102287)
+)
+
+
+# Starting/initial values: None specified
+
+parameters_to_save <- c("a", "b", "c", "d", "e", "p", "r", "rhat", "dev", "resdev")
+
+
+results <- jags(data = data,
+            # inits = initial_values,
+            parameters.to.save = parameters_to_save,
+            model.file = model_code,
+            n.chains = 1, # How many chains?
+            n.adapt = 100,
+            n.iter = 50000,
+            n.burnin = 20000,
+            n.thin = 2)
+
+summary(results)
+
+plot(results)
+```
+
+## `hivepi_6_xval`
+
+Simple version of the HIV Epi model with just 6 data points. (Yes, it has exactly the same comment as last example. But how is this one different?)
+
+
+```{r hivepi_6_xval}
+
+
+# Model
+
+model_code <- "model
+{
+  #  SET PRIORS   
+   a ~ dbeta( 1,2)            
+   z ~ dbeta (1,1)      
+   b <- z * (1-a)             #  sets constraint (1-a-b > 0)       
+   c ~ dbeta (1,1)             
+   d ~ dbeta (1,1)             
+   e ~ dbeta (1,1)            
+
+# VECTOR p[1:6] HOLDS THE EXPECTED PROBABILITIES FOR EACH DATA POINT
+   p[1] <- a
+   p[2] <- b
+   p[3] <- c
+   p[4] <- d
+   p[5] <- (d*b + e*(1-a-b))/(1- a)
+   p[6] <- c*a + d*b + e*(1-a-b) 
+                                              
+
+
+#  LIKELIHOOD AND DIAGNOSTICS
+  for(i in 1:3) {       r[i] ~ dbin(p[i],n[i])   
+       rhat[i] <- p[i] * n[i]               
+       dev[i] <- 2 * (r[i] * log(r[i]/rhat[i])  +  (n[i]-r[i]) * log((n[i]-r[i])/(n[i]-rhat[i])))    
+}                                                                                                   
+
+ for(i in 5:6) {       r[i] ~ dbin(p[i],n[i])   
+       rhat[i] <- p[i] * n[i]               
+       dev[i] <- 2 * (r[i] * log(r[i]/rhat[i])  +  (n[i]-r[i]) * log((n[i]-r[i])/(n[i]-rhat[i])))    
+}        
+	dev[4]<-0
+    resdev <- sum(dev[])        
+
+#cross-validation of data point 4
+    r.rep ~ dbin(p[4],n[4])
+    p.xval <- step(r.rep - r[4])  -   0.5 * equals(r.rep,r[4])    
+                                                                              
+}
+" %>% textConnection
+
+
+# Data (same as before)
+
+data <- list( 
+  r=c(11044, 12, 252, 10, 74, 254),
+  n=c(104577, 882, 15428, 473, 136139, 102287)
+)
+
+
+# Starting/initial values: None specified
+
+parameters_to_save <- c("a", "b", "c", "d", "e", "p", "r", "rhat", "dev", "resdev", "p.xval")
+
+
+results <- jags(data = data,
+            # inits = initial_values,
+            parameters.to.save = parameters_to_save,
+            model.file = model_code,
+            n.chains = 1, # How many chains?
+            n.adapt = 100,
+            n.iter = 50000,
+            n.burnin = 20000,
+            n.thin = 2)
+
+summary(results)
+
+plot(results)
+```
