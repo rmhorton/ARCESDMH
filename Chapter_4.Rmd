@@ -1,0 +1,889 @@
+---
+title: 'Chapter 4: Meta-analysis Using Bayesian Methods'
+author: "Bob"
+date: "2025-02-26"
+output: html_document
+---
+
+# TO DO: 
+* Models `Cholesterol_prior_sens` and `asprin_logistic_random_1_priors_sensitivity` fail with `Attempt to redefine node` errors. These chunks are set to `eval=FALSE`.
+* Describe the point of each model.
+* Be sure appropriate outputs are summarized or plotted. What other plots are relevant?
+* Clean up code: re-use datasets as appropriate, smarter table loading (compute k from the length of the dataframe; use this value to generate initial values), ... 
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load_libraries, warn=FALSE, message=FALSE}
+library('rjags')
+library('coda')
+library('jagshelper')
+library('jagsUI')
+library('mcmcplots')  # caterplot
+library('dplyr')
+```
+
+# Aspirin
+
+## `asprin_normal_fixed_1.txt`
+
+
+```{r asprin_normal_fixed_1}
+
+model_code <- "model 
+{ 
+  for (i in 1:Nstud)
+     {
+        P[i] <- 1/V[i]
+	   y[i] ~ dnorm(d, P[i])
+	}
+	d ~ dnorm(0, 1.0E-5)
+	OR <- exp(d)
+}" %>% textConnection
+
+# DATA
+data <- list(
+  y=c(.3289011, .3845458, .2195622, .2222206, .2254672, -.1246363, .1109658), 
+  V=c(.0388957,.0411673,.0204915,.0647646,.0351996,.0096167,.0015062), 
+  Nstud=7
+)
+
+# INITIAL VALUES: This is a list of lists, one per chain.
+initial_values <- list(
+  list(d=0)
+)
+
+results <- jags(
+  data = data,
+  inits = initial_values,
+  parameters.to.save = c("OR", "d"),
+  model.file = model_code,
+  n.chains = length(initial_values),
+  n.adapt = 100,
+  n.iter = 50000,
+  n.burnin = 20000,
+  n.thin = 2
+)
+
+summary(results)
+
+plot(results)
+
+```
+
+
+## `asprin_normal_random_1.txt`
+
+```{r asprin_normal_random_1}
+
+model_code <- "model 
+{ 
+  for (i in 1:Nstud)
+     {
+       P[i] <- 1/V[i]
+	   y[i] ~ dnorm(delta[i], P[i])
+	   delta[i] ~ dnorm(d, prec) 
+	}	
+	d ~ dnorm(0, 1.0E-5)
+	OR <- exp(d)
+	tau~dunif(0,10)
+	tau.sq<-tau*tau
+	prec<-1/(tau.sq)
+}" %>% textConnection
+
+# DATA
+data <- list(
+  y=c(.3289011, .3845458, .2195622, .2222206, .2254672, -.1246363, .1109658), 
+  V=c(.0388957,.0411673,.0204915,.0647646,.0351996,.0096167,.0015062), 
+  Nstud=7
+)
+
+# INITIAL VALUES: This is a list of lists, one per chain.
+initial_values <- list(
+  list(d=0, tau =1, delta=c(0,0,0,0,0,0,0))
+)
+
+results <- jags(
+  data = data,
+  inits = initial_values,
+  parameters.to.save = c("OR", "d", "prec", "tau.sq"),
+  model.file = model_code,
+  n.chains = length(initial_values),
+  n.adapt = 100,
+  n.iter = 50000,
+  n.burnin = 20000,
+  n.thin = 2
+)
+
+summary(results)
+
+plot(results)
+
+```
+
+## asprin_logistic_random_1.txt
+
+```{r asprin_logistic_random_1}
+
+model_code <- "model
+{
+  for( i in 1 : Nstud ) {
+    rA[i] ~ dbin(pA[i], nA[i])
+    rB[i] ~ dbin(pB[i], nB[i])
+    logit(pA[i]) <- mu[i]
+    logit(pB[i]) <- mu[i] + delta[i]
+    mu[i] ~ dnorm(0.0,1.0E-5)
+    delta[i] ~ dnorm(d, prec)
+  }
+  OR <- exp(d)
+  d ~ dnorm(0.0,1.0E-6)
+  tau~dunif(0,10)
+  tau.sq<-tau*tau
+  prec<-1/(tau.sq)
+}" %>% textConnection
+
+# DATA
+data <- list(
+  rA=c(49,44,102,32,85,246,1570), 
+  rB=c(67,64,126,38,52,219,1720), 
+  nA=c(615,758,832,317,810,2267,8587), 
+  nB=c(624,771,850,309,406,2257,8600), 
+  Nstud=7
+)
+
+
+# INITIAL VALUES: This is a list of lists, one per chain.
+initial_values <- list(
+  list(d=0, tau=1, delta=c(0,0,0,0,0,0,0), mu=c(0,0,0,0,0,0,0))
+)
+
+results <- jags(
+  data = data,
+  inits = initial_values,
+  parameters.to.save = c("OR", "d", "prec", "tau.sq"),
+  model.file = model_code,
+  n.chains = length(initial_values),
+  n.adapt = 100,
+  n.iter = 50000,
+  n.burnin = 20000,
+  n.thin = 2
+)
+
+summary(results)
+
+plot(results)
+
+```
+
+## asprin_logistic_random1_predict.txt
+
+```{r asprin_logistic_random1_predict}
+
+model_code <- "model
+{
+  for( i in 1 : Nstud ) {
+    rA[i] ~ dbin(pA[i], nA[i])
+    rB[i] ~ dbin(pB[i], nB[i])
+    logit(pA[i]) <- mu[i]
+    logit(pB[i]) <- mu[i] + delta[i]
+    mu[i] ~ dnorm(0.0,1.0E-5)
+    delta[i] ~ dnorm(d, prec)
+  }
+  
+  OR <- exp(d)
+  d ~ dnorm(0.0,1.0E-6)
+  tau~dunif(0,10)
+  tau.sq<-tau*tau
+  prec<-1/(tau.sq)
+  
+  d.new ~ dnorm(d, prec)
+  OR.new <-exp(d.new)
+}" %>% textConnection
+
+# DATA
+data <- list(
+  rA=c(49,44,102,32,85,246,1570), 
+  rB=c(67,64,126,38,52,219,1720), 
+  nA=c(615,758,832,317,810,2267,8587), 
+  nB=c(624,771,850,309,406,2257,8600), 
+  Nstud=7
+)
+
+
+# INITIAL VALUES: This is a list of lists, one per chain.
+initial_values <- list(
+  list(d=0, tau =1, delta=c(0,0,0,0,0,0,0), mu=c(0,0,0,0,0,0,0))
+)
+
+results <- jags(
+  data = data,
+  inits = initial_values,
+  parameters.to.save = c("OR", "OR.new", "d.new", "delta", "tau.sq"),
+  model.file = model_code,
+  n.chains = length(initial_values),
+  n.adapt = 100,
+  n.iter = 50000,
+  n.burnin = 20000,
+  n.thin = 2
+)
+
+summary(results)
+
+plot(results)
+
+```
+
+## `asprin_logistic_random_1_priors_sensitivity`
+
+```
+RUNTIME ERROR:
+Compilation error on line 13.
+Attempt to redefine node rBx[1,1]
+```
+
+```{r asprin_logistic_random_1_priors_sensitivity, eval=FALSE}
+
+model_code <- "model
+	{
+	
+  ## replicating the data 2 times to fit to 3 models in total where j indexes alternative prior distributions
+  
+  for (j in 1:3)
+    {
+    
+      for( i in 1 : Nstud )
+      {
+        rAx[j,i] ~ dbin(pA[j,i], nA[i])
+        rAx[j,i]<-rA[i]
+        rBx[j,i] ~ dbin(pB[j,i], nB[i])
+        rBx[j,i]<-rB[i]
+        logit(pA[j,i]) <- mu[j,i]
+        logit(pB[j,i]) <- mu[j,i] + delta[j,i]
+        mu[j,i] ~  dnorm(0.0,1.0E-5)
+        delta[j,i] ~ dnorm(d[j], prec[j])
+      }
+    }
+  
+  for (j in 1:3)
+    {
+      OR[j] <- exp(d[j])
+      d[j] ~ dnorm(0.0,1.0E-6)
+      m[j]~dnorm(0.0,1.0E-6)
+    }
+
+	
+  # Setting three different priors for the between study variance
+  
+  prec[1] <-1/tau.sq[1]
+  tau.sq[1] <-tau[1]*tau[1]
+  tau[1] ~ dnorm(0,1.0E-6)I(0,)
+  
+  prec[2] ~dgamma(0.001,0.001)
+  tau.sq[2] <-1/prec[2]
+  tau[2] <-sqrt(tau.sq[2])
+  
+  tau[3] ~dunif(0,10)
+  tau.sq[3]<-tau[3]*tau[3]
+  prec[3]<-1/tau.sq[3]
+	
+	}
+" %>% textConnection
+
+# DATA
+data <- list(
+  rA=c(49,44,102,32,85,246,1570), 
+  rB=c(67,64,126,38,52,219,1720), 
+  nA=c(615,758,832,317,810,2267,8587), 
+  nB=c(624,771,850,309,406,2257,8600), 
+  Nstud=7
+)
+
+
+# INITIAL VALUES: This is a list of lists, one per chain.
+initial_values <- list(
+  # WinBUGS code has extra closing parentheses (???)
+  list(
+    prec=c(NA,0.1,NA),  
+    tau=c(0.01, NA, 0.01), 
+    mu = structure(
+      .Data=c(0,0,0,0,0,0,0,  0,0,0,0,0,0,0,  0,0,0,0,0,0,0),
+      .Dim=c(3,7)),
+    delta = structure(
+      .Data=c(0,0,0,0,0,0,0,   0,0,0,0,0,0,0,   0,0,0,0,0,0,0),
+      .Dim=c(3,7)), 
+    d =c(0.1,0.1,0.1)
+  )
+
+)
+
+results <- jags(
+  data = data,
+  inits = initial_values,
+  parameters.to.save = c("OR", "d", "delta", "tau.sq"),
+  model.file = model_code,
+  n.chains = length(initial_values),
+  n.adapt = 100,
+  n.iter = 50000,
+  n.burnin = 20000,
+  n.thin = 2
+)
+
+summary(results)
+
+plot(results)
+
+```
+
+
+# Cholesterol
+
+## `chol_model.txt`, `chol_data.txt`
+
+```
+Error parsing model file:
+syntax error on line 5 near "var"
+```
+
+Maybe `var` is a reserved word or something? I changed it to `V` (as in the next model), which seems to work.
+
+```{r chol_model.txt}
+
+model_code <- "model 
+{ 
+  for (i in 1:k)
+  {
+    precision[i] <- 1/V[i]
+    logor[i] ~ dnorm(theta, precision[i])
+  }
+	theta ~ dnorm(0, 1.0E-5)
+	OR <- exp(theta)
+}
+" %>% textConnection
+
+# DATA
+data <- list(k=34)
+
+data_df <- "logor	V
+0.4893853	0.1987757
+-0.0683811	0.054427
+-0.4876372	0.0730886
+-0.1630902	0.1108992
+1.469676	1.186739
+0.0057637	0.0608936
+-0.1496961	0.0799553
+-1.94591	2.351288
+-0.0470209	0.0194635
+-0.3824268	0.0552552
+-0.5508629	0.0615112
+-0.0984401	0.0510244
+0.2939126	0.1708592
+-0.4883528	1.582492
+-0.4354064	0.0030637
+-0.2885568	0.0496847
+0.4696847	0.0716345
+0.2692525	0.0101539
+-1.563976	0.8819983
+-0.3517397	0.3733933
+-0.0480808	0.0298812
+-1.109251	2.687944
+0.0129744	0.0469846
+-0.4124823	0.0383304
+-0.0233855	0.0200697
+0.0803459	0.0082181
+-0.2820902	0.0420423
+-1.098612	2.707904
+0.521464	2.696409
+-0.2501722	0.477032
+1.025401	0.3643915
+-0.7528253	0.0676265
+-1.580711	2.272708
+0.5030903	0.1426682" %>% read.delim(text=., sep="\t")
+
+for (colname in names(data_df)){
+  data[[colname]] <- data_df[[colname]]
+}
+
+
+
+results <- jags(
+  data = data,
+  # inits = initial_values,
+  parameters.to.save = c("OR", "theta"),
+  model.file = model_code,
+  n.chains = 1, # length(initial_values),
+  # n.adapt = 100,
+  n.iter = 50000,
+  n.burnin = 20000 #, n.thin = 2
+)
+
+summary(results)
+
+plot(results)
+
+```
+
+# `Cholesterol_fixed.txt`
+
+Model 1: Generic fixed effect model applied to the cholesterol lowering dataset
+
+```{r Cholesterol_fixed}
+
+model_code <- "model 
+{ 
+  for (i in 1:k)
+  {
+    P[i] <- 1/V[i]
+    logor[i] ~ dnorm(d, P[i])
+  }
+	d ~ dnorm(0, 1.0E-5)
+	OR <- exp(d)
+}" %>% textConnection
+
+# DATA: re-used from previous model. Here the name of the second column in the data table is `V` instead of `var`. I changed that in the previous model because the name `var` seemed to be causing problems.
+
+# data <- list(k=34)
+# 
+# data_df <- "logor	V
+# 0.4893853	0.1987757
+# -0.0683811	0.054427
+# -0.4876372	0.0730886
+# -0.1630902	0.1108992
+# 1.469676	1.186739
+# 0.0057637	0.0608936
+# -0.1496961	0.0799553
+# -1.94591	2.351288
+# -0.0470209	0.0194635
+# -0.3824268	0.0552552
+# -0.5508629	0.0615112
+# -0.0984401	0.0510244
+# 0.2939126	0.1708592
+# -0.4883528	1.582492
+# -0.4354064	0.0030637
+# -0.2885568	0.0496847
+# 0.4696847	0.0716345
+# 0.2692525	0.0101539
+# -1.563976	0.8819983
+# -0.3517397	0.3733933
+# -0.0480808	0.0298812
+# -1.109251	2.687944
+# 0.0129744	0.0469846
+# -0.4124823	0.0383304
+# -0.0233855	0.0200697
+# 0.0803459	0.0082181
+# -0.2820902	0.0420423
+# -1.098612	2.707904
+# 0.521464	2.696409
+# -0.2501722	0.477032
+# 1.025401	0.3643915
+# -0.7528253	0.0676265
+# -1.580711	2.272708
+# 0.5030903	0.1426682" %>% read.delim(text=., sep="\t")
+# 
+# for (colname in names(data_df)){
+#   data[[colname]] <- data_df[[colname]]
+# }
+
+# INITIAL VALUES: This is a list of lists, one per chain.
+initial_values <- list(
+  list(d=0)
+)
+
+results <- jags(
+  data = data,
+  inits = initial_values,
+  parameters.to.save = c("OR", "d"),
+  model.file = model_code,
+  n.chains = length(initial_values),
+  n.adapt = 100,
+  n.iter = 50000,
+  n.burnin = 20000,
+  n.thin = 2
+)
+
+summary(results)
+
+plot(results)
+
+```
+
+## `Cholesterol_random.txt`
+
+Model 2: Generic random effect model applied to the cholesterol lowering dataset
+
+```{r Cholesterol_random}
+
+
+model_code <- "model 
+{ 
+  for (i in 1:k)
+    {
+      P[i] <- 1/V[i]
+      logor[i] ~ dnorm(delta[i], P[i])
+      delta[i] ~ dnorm(d, prec) 
+    }	
+	d ~ dnorm(0, 1.0E-5)
+	OR <- exp(d)
+	
+	tau ~ dunif(0,10)
+	tau.sq <- tau*tau
+	prec <- 1/(tau.sq)
+	d.new ~ dnorm(d, prec)
+}" %>% textConnection
+
+# DATA: re-used from previous chunks.
+
+
+initial_values <- list(
+  list(d=0, 
+       delta=c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), 
+       d.new=0)
+)
+
+results <- jags(
+  data = data,
+  inits = initial_values,
+  parameters.to.save = c("OR", "d"),
+  model.file = model_code,
+  n.chains = length(initial_values),
+  n.adapt = 100,
+  n.iter = 50000,
+  n.burnin = 20000,
+  n.thin = 2
+)
+
+summary(results)
+
+```
+
+## `Cholesterol_random_logistic.txt`
+
+```{r Cholesterol_random_logistic}
+model_code <- "model
+	{
+	   for( i in 1 : k ) {
+	   	rA[i] ~ dbin(pA[i], nA[i])
+		   rB[i] ~ dbin(pB[i], nB[i])
+		logit(pA[i]) <- mu[i]
+		logit(pB[i]) <- mu[i] + delta[i]
+		mu[i] ~ dnorm(0.0,1.0E-5)
+		delta[i] ~ dnorm(d, prec)
+	   }
+		OR <- exp(d)
+	    d ~ dnorm(0.0,1.0E-6)
+	
+		tau~dunif(0,10)
+		tau.sq<-tau*tau
+		prec<-1/(tau.sq)
+	}
+
+" %>% textConnection
+
+# DATA
+data <- list(k=34)
+
+data_df <- "nB	nA	rB	rA
+50	50	17	12
+285	147	70	38
+156	119	37	40
+123	129	20	24
+54	26	8	1
+427	143	81	27
+199	194	28	31
+30	33	0	3
+424	422	174	178
+206	206	41	55
+244	253	31	51
+350	367	42	48
+47	48	23	20
+23	29	1	2
+5552	2789	1025	723
+1149	1129	37	48
+221	237	39	28
+5331	5296	236	181
+88	30	2	3
+71	72	5	7
+1906	1900	68	71
+94	94	0	1
+2051	2030	44	43
+279	276	61	82
+1018	1015	111	113
+4541	4516	269	248
+421	417	49	62
+48	49	0	1
+94	52	1	0
+79	78	4	5
+6582	1663	33	3
+204	202	28	51
+30	60	0	4
+311	317	19	12" %>% read.delim(text=., sep="\t")
+
+for (colname in names(data_df)){
+  data[[colname]] <- data_df[[colname]]
+}
+
+initial_values = list(
+  list(d=0, 
+       tau=1, 
+       delta=c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), # rep(0, data$k)
+       mu=c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  )
+
+results <- jags(
+  data = data,
+  inits = initial_values,
+  parameters.to.save = c("OR", "theta"),
+  model.file = model_code,
+  n.chains = length(initial_values),
+  n.adapt = 100,
+  n.iter = 50000,
+  n.burnin = 20000 #, n.thin = 2
+)
+
+summary(results)
+
+plot(results)
+
+```
+
+## `Cholesterol_random_logistic_2`
+
+Model 3 (Cont) Question 5: Direct OR model applied to the cholesterol lowering dataset
+
+```{r Cholesterol_random_logistic_2}
+model_code <- "
+
+model
+{
+  for( i in 1 : k ) {
+    rA[i] ~ dbin(pA[i], nA[i])
+    rB[i] ~ dbin(pB[i], nB[i])
+    logit(pA[i]) <- mu[i]
+    logit(pB[i]) <- mu[i] + delta[i]
+    mu[i] ~ dnorm(0.0,1.0E-5)
+    delta[i] ~ dnorm(d, prec)
+  }
+  OR <- exp(d)
+  d ~ dnorm(0.0,1.0E-6)
+  
+  tau~dunif(0,10)
+  tau.sq<-tau*tau
+  prec<-1/(tau.sq)
+  
+  # Storing theta.pooled in delta[37] to add to caterpillar plot
+  delta[37] <- d
+  
+  # Replicate from a predictive distribution for a future study
+  delta[39] ~ dnorm(d, prec)
+  
+}
+" %>% textConnection
+
+# DATA
+data <- list(k=34)
+
+data_df <- "nB	nA	rB	rA
+50	50	17	12
+285	147	70	38
+156	119	37	40
+123	129	20	24
+54	26	8	1
+427	143	81	27
+199	194	28	31
+30	33	0	3
+424	422	174	178
+206	206	41	55
+244	253	31	51
+350	367	42	48
+47	48	23	20
+23	29	1	2
+5552	2789	1025	723
+1149	1129	37	48
+221	237	39	28
+5331	5296	236	181
+88	30	2	3
+71	72	5	7
+1906	1900	68	71
+94	94	0	1
+2051	2030	44	43
+279	276	61	82
+1018	1015	111	113
+4541	4516	269	248
+421	417	49	62
+48	49	0	1
+94	52	1	0
+79	78	4	5
+6582	1663	33	3
+204	202	28	51
+30	60	0	4
+311	317	19	12" %>% read.delim(text=., sep="\t")
+
+for (colname in names(data_df)){
+  data[[colname]] <- data_df[[colname]]
+}
+
+initial_values = list(
+  list(
+    d=0, 
+    tau=2, 
+    delta=c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,NA,NA,NA,NA,1),  
+    mu=c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+
+)
+
+
+results <- jags(
+  data = data,
+  inits = initial_values,
+  parameters.to.save = c("OR", "theta"),
+  model.file = model_code,
+  n.chains = length(initial_values),
+  n.adapt = 100,
+  n.iter = 50000,
+  n.burnin = 20000 #, n.thin = 2
+)
+
+summary(results)
+
+plot(results)
+
+```
+
+## `Cholesterol_prior_sens`
+
+Model 4: Direct OR model with built in sensitivity analysis to prior
+
+```
+RUNTIME ERROR:
+Compilation error on line 14.
+Attempt to redefine node rBx[1,1]
+```
+
+```{r Cholesterol_prior_sens, eval=FALSE}
+model_code <- "
+model
+{
+	
+  ## replicating the data 2 times to fit to 3 models in total where j indexes alternative prior distributions
+
+  for (j in 1:3)
+  {
+     
+    for( i in 1 : k )
+    {
+      rAx[j,i] ~ dbin(pA[j,i], nA[i])
+      rAx[j,i] <- rA[i]
+      rBx[j,i] ~ dbin(pB[j,i], nB[i])
+      rBx[j,i] <- rB[i]
+      logit(pA[j,i]) <- mu[j,i]
+      logit(pB[j,i]) <- mu[j,i] + delta[j,i]
+      mu[j,i] ~ dnorm(0.0,1.0E-5)
+      delta[j,i] ~ dnorm(d[j], prec[j])
+    }
+  }
+
+  for (j in 1:3)
+  {
+    OR[j] <- exp(d[j])
+    d[j] ~ dnorm(0.0,1.0E-6)
+    m[j]~dnorm(0.0,1.0E-6)
+  }
+
+	
+  # Setting three different priors for the between study variance
+  
+  prec[1] <-1/tau.sq[1]
+  tau.sq[1] <-tau[1]*tau[1]
+  tau[1] ~ dnorm(0,1.0E-6)I(0,)
+  
+  prec[2] ~dgamma(0.001,0.001)
+  tau.sq[2] <-1/prec[2]
+  tau[2] <-sqrt(tau.sq[2])
+  
+  tau[3] ~dunif(0,50)
+  tau.sq[3]<-tau[3]*tau[3]
+  prec[3]<-1/tau.sq[3]
+	
+}" %>% textConnection
+
+# DATA
+data <- list(k=34)
+
+data_df <- "nB	nA	rB	rA
+50	50	17	12
+285	147	70	38
+156	119	37	40
+123	129	20	24
+54	26	8	1
+427	143	81	27
+199	194	28	31
+30	33	0	3
+424	422	174	178
+206	206	41	55
+244	253	31	51
+350	367	42	48
+47	48	23	20
+23	29	1	2
+5552	2789	1025	723
+1149	1129	37	48
+221	237	39	28
+5331	5296	236	181
+88	30	2	3
+71	72	5	7
+1906	1900	68	71
+94	94	0	1
+2051	2030	44	43
+279	276	61	82
+1018	1015	111	113
+4541	4516	269	248
+421	417	49	62
+48	49	0	1
+94	52	1	0
+79	78	4	5
+6582	1663	33	3
+204	202	28	51
+30	60	0	4
+311	317	19	12" %>% read.delim(text=., sep="\t")
+
+for (colname in names(data_df)){
+  data[[colname]] <- data_df[[colname]]
+}
+
+initial_values = list(
+
+  list(
+    prec=c(NA,0.1,NA),  
+    tau=c(0.5, NA, 0.5), 
+    mu = structure(.Data=c(0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,   0,0,0,0,
+0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,   0,0,0,0,
+0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,   0,0,0,0),.Dim=c(3,34)),
+
+    delta = structure(.Data=c(
+0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,   0,0,0,0,
+0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,   0,0,0,0,
+0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,   0,0,0,0),.Dim=c(3,34)) #)
+    , 
+    d =c(0.1,0.1,0.1) 
+  )
+
+)
+
+
+results <- jags(
+  data = data,
+  inits = initial_values,
+  parameters.to.save = c("deviance", "theta"),
+  model.file = model_code,
+  n.chains = length(initial_values),
+  n.adapt = 100,
+  n.iter = 50000,
+  n.burnin = 20000 #, n.thin = 2
+)
+
+summary(results)
+
+plot(results)
+
+```
