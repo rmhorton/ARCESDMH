@@ -1,0 +1,283 @@
+---
+title: "Chapter 2: Bayesian Methods and WinBUGS"
+author: "Bob"
+date: "2025-02-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load_libraries}
+library('rjags')
+library('coda')
+library('jagshelper')
+library('jagsUI')
+library('mcmcplots')  # caterplot
+library('dplyr')
+
+setwd("~/Documents/projects/Healthcare_Technology_Assessment/ARSCESDMH")
+```
+
+# `BLOCKER.txt`
+
+## BLOCKER EG - Modelling log(Odds Ratio) 
+
+```{r blocker_initial_model}
+
+
+# Model
+
+model_code <- "model {
+  # Likelihood
+  for (j in 1:Nstud) {
+    P[j] <- 1/V[j]      # Calculate precision
+    Y[j] ~ dnorm(delta[j],P[j])
+    delta[j] ~ dnorm(d,prec)
+  }
+  
+  # Priors
+  d ~ dnorm(0,1.0E-6)
+  prec <- 1/tau.sq
+  tau.sq <- tau*tau   # tau.sq = between-study variance
+  tau ~ dunif(0,10)   # Uniform on SD
+}" %>% textConnection
+
+
+# Starting/initial values
+
+initial_values <- list(list(
+  delta=c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0),
+  d=0,
+  tau=1
+))
+
+
+# Data
+# The data is inline below, but if you want to read it from the original excel file, you could do this:
+# library('readxl')
+# data <- read_excel("BLOCKER.xls") %>% as.list
+# data['Nstud'] <- 22
+
+data <- "Y	V
+0.02817088	0.72301587
+-0.7410032	0.23343543
+-0.5406212	0.31872921
+-0.24612808	0.01909462
+0.06945337	0.07876801
+-0.5841569	0.45658762
+-0.51238549	0.01923431
+-0.07862326	0.04161232
+-0.42417337	0.07506123
+-0.3348234	0.01370499
+-0.21339753	0.0379751
+-0.03890844	0.05265218
+-0.59325371	0.18076732
+0.28154593	0.04220784
+-0.32133359	0.08863069
+-0.13534792	0.06808023
+0.14060645	0.13262283
+0.32204972	0.30541643
+0.44438052	0.51358597
+-0.21750973	0.0675177
+-0.59107599	0.06615537
+-0.60809913	0.07419013" %>% 
+  read.delim(text=., sep='\t') %>%
+  as.list
+
+data['Nstud'] <- length(data[['V']])
+
+out_initial <- jags(data = data,
+            inits = initial_values,
+            parameters.to.save = c("d", "tau"),
+            model.file = model_code,
+            n.chains = length(initial_values),
+            n.adapt = 100,
+            n.iter = 30000,
+            n.burnin = 20000,
+            n.thin = 2)
+
+plot(out_initial)
+
+```
+
+# `BLOCKER_binomial.txt`
+
+BLOCKER EG - Modelling binomial data, as per WinBUGS examples, vol I
+Note: some of the variance/precision parameter names are different to the code in the WinBUGS example blocker file.
+
+
+```{r BLOCKER_binomial}
+model_code <- "
+model {
+  for( j in 1 : Nstud ) {
+    # Binomial Likelihood
+    rc[j] ~ dbin(pc[j], nc[j])
+    rt[j] ~ dbin(pt[j], nt[j])
+    logit(pc[j]) <- mu[j]
+    logit(pt[j]) <- mu[j] + delta[j]   # delta[j] is the log odds ratio in jth study
+    mu[j] ~ dnorm(0.0,1.0E-5)
+    delta[j] ~ dnorm(d, prec)      # d = pooled log odds ratio & prec = between-study precision
+  }
+
+  # Priors
+  d ~ dnorm(0.0,1.0E-6)
+  prec <- 1/tau.sq
+  tau.sq <- tau*tau        # tau = between-study standard deviation
+  tau ~ dunif(0,10)          # Uniform prior on SD
+  
+  # Calculate overall pooled Odds Ratio (OR)
+  OR <- exp(d)
+  
+  # Calculate probability that the pooled OR > 1
+  prob.OR1 <- step(d)
+}
+" %>% textConnection
+
+```
+
+```{r how_to_get_started}
+
+# Data
+data <- list(
+  rt = c(3,  7,  5,  102,  28, 4,  98,  60, 25, 138, 64, 45,  9, 57, 25, 33, 28, 8, 6, 32, 27, 22 ),
+  nt = c(38, 114, 69, 1533, 355, 59, 945, 632, 278,1916, 873, 263, 291, 858, 154, 207, 251, 151, 174, 209, 391, 680),
+  rc = c(3, 14, 11, 127, 27, 6, 152, 48, 37, 188, 52, 47, 16, 45, 31, 38, 12, 6, 3, 40, 43, 39),
+  nc = c(39, 116, 93, 1520, 365, 52, 939, 471, 282, 1921, 583, 266, 293, 883, 147, 213, 122, 154, 134, 218, 364, 674),
+  Nstud = 22)
+
+initial_values <- list(
+  list(
+    d = 0.5,
+    tau=0.5,
+    mu = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    delta = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+  )
+)
+
+for (i in 1:3){
+  new_inits <- list(
+    d = 0,
+    tau=1,
+    mu = runif(data$Nstud),
+    delta = runif(data$Nstud)
+  )
+  
+  initial_values <- append(initial_values, list(new_inits))
+}
+
+results <- jags(data = data,
+            inits = initial_values,
+            parameters.to.save = c("OR", "d", "tau"),
+            model.file = model_code,
+            n.chains = length(initial_values),
+            n.adapt = 100,
+            n.iter = 60000,
+            n.burnin = 30000,
+            n.thin = 2)
+
+summary(results)
+plot(results)
+```
+# `blocker_with_results.txt`
+
+## BLOCKER EG - Modelling log(Odds Ratio)
+
+Using multiple chains to assess convergence
+
+```{r blocker_eg}
+
+model_code <- "
+model {
+  # Likelihood
+  for (j in 1:Nstud) {
+    P[j] <- 1/V[j]
+    Y[j] ~ dnorm(delta[j],P[j])
+    delta[j] ~ dnorm(d, prec)
+  }
+  
+  # Priors
+  d ~ dnorm(0,1.0E-6)
+  prec <- 1/tau.sq
+  tau.sq <- tau*tau
+  tau ~ dunif(0,10)
+  
+  # Calculate OR & prob OR>1
+  OR <- exp(d)
+  prob.OR1 <- step(d)
+  
+  #Set delta[26] = d for caterpillar plot
+  delta[26] <- d
+}" %>% textConnection
+
+initial_values <- list(
+  # Chain 1
+  list(delta=c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, NA,NA,NA,NA),
+       d=0,
+       tau=1),
+
+  # Chain 2
+  list(delta=c(10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10, NA,NA,NA,NA),
+       d=-10,
+       tau=8)
+)
+
+data <- list(
+  Y=c(0.02817088,-0.74100320,-0.54062120,-0.24612808,0.06945337,-0.58415690,
+    -0.51238549,-0.07862326,-0.42417337,-0.33482340,-0.21339753,-0.03890844,
+    -0.59325371,0.28154593,-0.32133359,-0.13534792,0.14060645,0.32204972,
+    0.44438052,-0.21750973,-0.59107599,-0.60809913),
+  V=c(0.72301587,0.23343543,0.31872921,0.01909462, 0.07876801, 0.45658762,
+      0.01923431, 0.04161232, 0.07506123, 0.01370499, 0.03797510, 0.05265218,
+      0.18076732, 0.04220784, 0.08863069, 0.06808023, 0.13262283, 0.30541643,
+      0.51358597, 0.06751770, 0.06615537, 0.07419013),
+  Nstud=22
+)
+
+out_eg <- jags(data = data,
+            inits = initial_values,
+            parameters.to.save = c("OR", "d", "tau", "delta"),
+            model.file = model_code,
+            n.chains = length(initial_values),
+            n.adapt = 100,
+            n.iter = 30000,
+            n.burnin = 20000,
+            n.thin = 2)
+
+plot(out_eg)
+
+# densityplot(out)
+```
+
+These are the comments from the results of the WinBUGS file:
+
+"The summary statistics for the 2 chains using a burn-in of 20,000 iterations 
+and a sample of length 10,000 iterations are very similar despite the very 
+different starting values suggesting that the chains have converged.
+
+The BGR statistics are also suggestive of the chains having converged - the 
+green (pooled) and blue (individual chains) widths of the 80% CrIs are relatively 
+stable, and their ratio (red line) is approximately 1.
+
+The actual samples from the 2 chains are also very similar as can be 
+seen on the history plots below for d and tau."
+
+## TO DO: 
+
+How do we make a caterpillar plot from the delta and d values? Note that the model copied the value for 'd' into the delta vector (`delta[26] <- d`), which was a hack to put all of these values in the same vector for plotting. We might not need to do this.
+
+We want these values ordered by name; they seem to be ordered by decreasing value of the median.
+
+```{r caterplot_delta}
+
+colnames <- sprintf("delta[%d]", c(1:22, 26))
+caterplot(out_eg$samples[, colnames])
+
+
+colnames <- c(sprintf("delta[%d]", 1:22), 'd')
+caterplot(out_eg$samples[, colnames]) 
+```
+
+
+
