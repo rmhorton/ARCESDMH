@@ -1,0 +1,141 @@
+---
+title: 'Chapter 6: Model critique and evidence consistency in random effects meta-analysis'
+author: "Bob"
+date: "2025-02-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r load_libraries, warning=FALSE, message=FALSE}
+library('rjags')
+library('coda')
+library('jagshelper')
+library('jagsUI')
+library('mcmcplots')  # caterplot
+library('dplyr')
+```
+
+# `criticism_results`
+
+Random effects model
+
+```{r criticism_results}
+
+
+# Model
+
+model_code <- "model
+{
+  for(i in 1:32){
+    r[i] ~ dbin(p[i], n[i])										#Likelihood		
+    #Log-odds for control (t[i]=1) and treatment (t[i]=2) groups		
+    logit(p[i]) <- mu[s[i]] + delta[s[i]]*equals(t[i],2)		
+    #Deviance contribution
+    rhat[i] <- p[i] * n[i]                                          #  expected value of the numerators 
+    dev[i] <- 2 * (r[i] * (log(r[i])-log(rhat[i]))  +  (n[i]-r[i]) * (log(n[i]-r[i]) - log(n[i]-rhat[i])))
+  }
+  
+  for (j in 1: 16){
+    #Priors for baseline effects		   
+    mu[j] ~ dnorm(0,1.0E-6)	
+    #Hierarchical random effects model for treatment effects
+    delta[j] ~ dnorm(d, prec)		
+  }
+  
+  or<-exp(d)									#Population odds ratio
+  
+  d ~ dnorm(0.0,1.0E-6)				#Prior for population treatment effect
+  tau ~ dnorm(0.0,1.0E-6)I(0,)		#Prior for between studies sd
+  prec<- 1/(tau*tau)
+  
+  delta.new~dnorm(d,prec)				#Replicate log OR for prediction
+  
+  # For plotting purposes put population treatment effect & predicted effect from new study
+  # in elements 19 & 20 respectively
+  delta[19] <- d
+  delta[20] <- delta.new
+  
+  #Total Deviance
+  resdev <- sum(dev[])
+}
+" %>% textConnection
+
+
+# Data
+
+data <- "s	t	r	n
+1	1	2	36
+1	2	1	40
+2	1	23	135
+2	2	9	135
+3	1	7	200
+3	2	2	200
+4	1	1	46
+4	2	1	48
+5	1	8	148
+5	2	10	150
+6	1	9	56
+6	2	1	59
+7	1	3	23
+7	2	1	25
+8	1	1	21
+8	2	0	22
+9	1	11	75
+9	2	6	76
+10	1	7	27
+10	2	1	27
+11	1	12	80
+11	2	2	89
+12	1	13	33
+12	2	5	23
+13	1	8	122
+13	2	4	130
+14	1	118	1157
+14	2	90	1159
+15	1	17	108
+15	2	4	107
+16	1	2103	29039
+16	2	2216	29011" %>% read.delim(text=.) %>% as.list
+
+
+# Starting/initial values
+
+initial_values <- list(
+list(d = 0,  tau=1,mu = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+		delta = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,NA,NA,NA,NA),
+		delta.new=0
+		),
+		
+list(d = -1, tau=2, mu = c(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1),
+delta = c(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,  1, 1,NA,NA,NA,NA),
+		delta.new=0
+		),
+		
+list(d = 1, tau=0.5,mu = c(-1,-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1),
+delta = c(-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,  -1, -1, -1, -1, -1,NA, NA,NA,NA),
+		delta.new=0
+		)
+		
+)
+
+parameters_to_save <- c("d","delta", "dev", "or", "prec", "resdev", "tau")
+
+
+results <- jags(data = data,
+            inits = initial_values,
+            parameters.to.save = parameters_to_save,
+            model.file = model_code,
+            n.chains = length(initial_values),
+            n.adapt = 100,
+            n.iter = 50000,
+            n.burnin = 20000,
+            n.thin = 2)
+
+summary(results)
+
+plot(results)
+```
