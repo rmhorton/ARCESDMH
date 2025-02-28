@@ -1,0 +1,227 @@
+---
+title: 'Chapter 5: Exploring between study heterogeneity'
+author: "Bob"
+date: "2025-02-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r load_libraries, warning=FALSE, message=FALSE}
+library('rjags')
+library('coda')
+library('jagshelper')
+library('jagsUI')
+library('mcmcplots')  # caterplot
+library('dplyr')
+```
+
+# `BCG_vaccine_logistic_random_1`
+
+```{r BCG_vaccine_logistic_random_1}
+
+
+# Model
+
+model_code <- "model
+{
+  for( i in 1 : Nstud ) {
+    rA[i] ~ dbin(pA[i], nA[i])
+    rB[i] ~ dbin(pB[i], nB[i])
+    logit(pA[i]) <- mu[i]
+    logit(pB[i]) <- mu[i] + delta[i]
+    mu[i] ~ dnorm(0.0,1.0E-5)
+    delta[i] ~ dnorm(d, prec)
+  }
+  OR <- exp(d)
+  d ~ dnorm(0.0,1.0E-6)
+  tau~dunif(0,10)
+  tau.sq<-tau*tau
+  prec<-1/(tau.sq)
+  
+  d.new ~ dnorm(d, prec)
+  OR.new <-exp(d.new)
+}
+" %>% textConnection
+
+
+# Data
+
+data <- list(
+  rB=c(4,6,3,62,33,180,8,505,29,17,186,5,27), 
+  rA=c(11,29,11,248,47,372,10,499,45,65,141,3,29), 
+  nB=c(123,306,231,13598,5069, 1541,2545,88391,7499,1716,50634,2498,16913), 
+  nA=c(139,303,220,12867,5808,1451,629,88391,7277,1665,27338,2341,17854), 
+  Nstud=13
+)
+
+
+# Starting/initial values
+
+initial_values <- list(
+  list(d=0, 
+       tau =1, 
+       delta=c(0,0,0,0,0,0,0,0,0,0,0,0,0), 
+       mu=c(0,0,0,0,0,0,0,0,0,0,0,0,0)
+  )
+)
+
+parameters_to_save <- c("OR", "d","prec","tau.sq")
+
+
+results <- jags(data = data,
+            inits = initial_values,
+            parameters.to.save = parameters_to_save,
+            model.file = model_code,
+            n.chains = length(initial_values),
+            n.adapt = 100,
+            n.iter = 50000,
+            n.burnin = 20000,
+            n.thin = 2)
+
+summary(results)
+
+plot(results)
+```
+
+# `BCG_vaccine_regression_logistic_random1`
+
+```{r BCG_vaccine_regression_logistic_random1}
+
+# Model
+
+model_code <- "model
+{
+  for( i in 1 : Nstud ) {
+    rA[i] ~ dbin(pA[i], nA[i])
+    rB[i] ~ dbin(pB[i], nB[i])
+    logit(pA[i]) <- mu[i]
+    logit(pB[i]) <- mu[i] + delta[i] + lat[i]*beta
+    mu[i] ~ dnorm(0.0,1.0E-5)
+    delta[i] ~ dnorm(d, prec)
+  }
+  
+  d ~ dnorm(0.0,1.0E-6)
+  tau~dunif(0,10)
+  tau.sq<-tau*tau
+  prec<-1/(tau.sq)
+  beta ~ dnorm(0.0,1.0E-6)
+  
+  OR <- exp(d)
+
+}
+" %>% textConnection
+
+
+# Data: same as above, with added vector 'lat'
+
+data <- list(
+  rB=c(4,6,3,62,33,180,8,505,29,17,186,5,27), 
+  rA=c(11,29,11,248,47,372,10,499,45,65,141,3,29), 
+  nB=c(123,306,231,13598,5069, 1541,2545,88391,7499,1716,50634,2498,16913), 
+  nA=c(139,303,220,12867,5808,1451,629,88391,7277,1665,27338,2341,17854),
+  lat=c(44,55,42,52,13,44,19,13,27,42,18,33,33), 
+  Nstud=13)
+
+
+# Starting/initial values
+
+initial_values <- list(
+  list(d=0, 
+       tau =1, 
+       delta=c(0,0,0,0,0,0,0,0,0,0,0,0,0), 
+       mu=c(0,0,0,0,0,0,0,0,0,0,0,0,0), 
+       beta=0
+  )
+
+)
+
+parameters_to_save <- c("OR", "beta", "d","prec","tau.sq")
+
+
+results <- jags(data = data,
+            inits = initial_values,
+            parameters.to.save = parameters_to_save,
+            model.file = model_code,
+            n.chains = length(initial_values),
+            n.adapt = 100,
+            n.iter = 50000,
+            n.burnin = 20000,
+            n.thin = 2)
+
+summary(results)
+
+plot(results)
+```
+
+# `BCG_vaccine_regression_logistic_random_centered1`
+
+```{r BCG_vaccine_regression_logistic_random_centered1}
+
+# Model
+
+model_code <- "model
+{
+  for( i in 1 : Nstud ) {
+    rA[i] ~ dbin(pA[i], nA[i])
+    rB[i] ~ dbin(pB[i], nB[i])
+    logit(pA[i]) <- mu[i]
+    logit(pB[i]) <- mu[i] + delta[i] + (lat[i] - mean(lat[])) * beta # subtract mean
+    mu[i] ~ dnorm(0.0,1.0E-5)
+    delta[i] ~ dnorm(d, prec)
+  }
+  
+  d ~ dnorm(0.0,1.0E-6)
+  tau ~ dunif(0,10)
+  tau.sq <- tau*tau
+  prec <- 1/(tau.sq)
+  beta ~ dnorm(0.0,1.0E-6)
+  
+  OR <- exp(d)
+}
+" %>% textConnection
+
+
+# Data: same as above, including 'lat' vector
+
+# data <- list(
+#   rB=c(4,6,3,62,33,180,8,505,29,17,186,5,27), 
+#   rA=c(11,29,11,248,47,372,10,499,45,65,141,3,29), 
+#   nB=c(123,306,231,13598,5069, 1541,2545,88391,7499,1716,50634,2498,16913),
+#   nA=c(139,303,220,12867,5808,1451,629,88391,7277,1665,27338,2341,17854),
+#   lat=c(44,55,42,52,13,44,19,13,27,42,18,33,33), 
+#   Nstud=13)
+
+# Starting/initial values:" same as previous model
+
+# initial_values <- list(
+#   list(d=0, 
+#        tau =1, 
+#        delta=c(0,0,0,0,0,0,0,0,0,0,0,0,0), 
+#        mu=c(0,0,0,0,0,0,0,0,0,0,0,0,0), 
+#        beta=0
+#   )
+# 
+# )
+
+parameters_to_save <- c("OR", "beta", "d","prec","tau.sq")
+
+
+results <- jags(data = data,
+            inits = initial_values,
+            parameters.to.save = parameters_to_save,
+            model.file = model_code,
+            n.chains = length(initial_values),
+            n.adapt = 100,
+            n.iter = 50000,
+            n.burnin = 20000,
+            n.thin = 2)
+
+summary(results)
+
+plot(results)
+```
+
