@@ -8,3 +8,8 @@ STATUS: The following chapters contain code examples that are not yet working in
 * Chapter_09: rank function; multi-dimensional data
 * Chapter_10: Attempt to redefine node; Invalid parent values
 * Chapter_11: Attempt to redefine node
+
+
+Code that needed to be tweaked to run in JAGS:
+
+* Chapter 12: `ranked` function.
