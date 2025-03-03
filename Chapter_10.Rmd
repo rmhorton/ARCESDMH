@@ -1,0 +1,558 @@
+---
+title: 'Chapter 10: Markov models'
+author: "Bob"
+date: "2025-03-02"
+output: html_document
+---
+
+<font color="#FF0000">
+NOTE: Of the four examples in this set, only the second one currently works.
+</font>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r load_libraries, warning=FALSE, message=FALSE}
+library('rjags')
+library('coda')
+library('jagshelper')
+library('jagsUI')
+library('mcmcplots')  # caterplot
+library('dplyr')
+```
+
+
+# `asthma_1`
+
+Estimating Transition Probabilities
+
+<font color="#FF0000">
+<pre>
+Error in rjags::jags.model(file = model.file, data = data, inits = inits,  : 
+  Error in node (r[1,2,1]/rhat[1,2,1])
+Invalid parent values
+<p/re>
+</font>
+
+```{r asthma_1, eval=FALSE}
+
+
+# Model
+
+model_code <- "model{
+	for (tmt in 1:2){										# Treatments tmt=1 (Seretide), tmt=2 (Fluticasone)
+		for (i in 1:4){									  # There are 4 non-absorbing health states
+			r[tmt, i, 1:5] ~ dmulti(pi[tmt,i,1:5],n[tmt,i])		# Multinomial data
+			pi[tmt, i, 1:5] ~ ddirch(prior[tmt,i,1:5])		# Dirichlet prior for probs.
+
+			for (j in 1:5){
+				rhat[tmt,i,j] <- pi[tmt,i,j] * n[tmt,i]
+				dev[tmt,i,j] <- 2*r[tmt,i,j] * log(r[tmt,i,j]/rhat[tmt,i,j])
+			}
+			resdev[tmt,i] <- sum(dev[tmt,i,1:5])
+		}
+	}
+
+resdevtot<- sum(resdev[1:2,1:4])
+}
+
+" %>% textConnection
+
+
+# Data: same as in random effects model above
+data <- list(
+  r=structure(
+    .Data=c(
+      210,	60,	0,	1,	1,	
+      88,	641,	0,	4,	13,	
+       0,		0,	0,	0,	0,	
+       1,		0,	0,	0,	1,	
+      
+      66,		32,	0,	0,	2,	
+      42,	  752,	0,	5,	20,	
+      0,		0,	  0,	0,	0,	
+      0,		4,	  0,	1,	0), 
+      .Dim=c(2,4,5)),
+  n=structure(
+    .Data=c(272,746,0,2,	100,819,0,5), 
+    .Dim=c(2,4)),
+  prior=structure(
+    .Data=c(1,1,1,1,1,	1,1,1,1,1,	1,1,1,1,1,	1,1,1,1,1,	
+						1,1,1,1,1,	1,1,1,1,1,	1,1,1,1,1,	1,1,1,1,1), 
+		.Dim=c(2,4,5))
+)
+
+
+# Starting/initial values: same as random effects model without sd
+initial_values <- list(
+  #Inits
+  list(pi=structure(
+    .Data=c(.6,.1,.1,.1,.1,	.1,.6,.1,.1,.1,	.1,.1,.6,.1,.1,	.1,.1,.1,.6,.1,	
+  					.6,.1,.1,.1,.1,	.1,.6,.1,.1,.1,	.1,.1,.6,.1,.1,	.1,.1,.1,.6,.1), 
+  	.Dim=c(2,4,5))
+  ),
+  
+  #Alternative Inits
+  list(pi=structure(
+    .Data=c(.2,.2,.2,.2,.2,	.2,.2,.2,.2,.2,	.2,.2,.2,.2,.2,	.2,.2,.2,.2,.2,
+  					.2,.2,.2,.2,.2,	.2,.2,.2,.2,.2,	.2,.2,.2,.2,.2,	.2,.2,.2,.2,.2),
+  	.Dim=c(2,4,5))
+  )
+  
+)
+
+
+parameters_to_save <- c("r", "pi", "rhat") # What else?
+
+
+results <- jags(data = data,
+            inits = initial_values,
+            parameters.to.save = parameters_to_save,
+            model.file = model_code,
+            n.chains = length(initial_values),
+            n.adapt = 100,
+            n.iter = 50000,
+            n.burnin = 20000,
+            n.thin = 2)
+
+summary(results)
+
+```
+
+
+# `asthma_2`
+
+Propagating Uncertainty into a Decision Model
+
+
+```{r asthma_2}
+
+
+# Model
+
+model_code <- "
+model{
+#Data analysis
+	for (tmt in 1:2){										#Treatments tmt=1 (Seretide), tmt=2 (Fluticasone)
+		for (i in 1:4){									#There are 4 non-absorbing health states
+			r[tmt,i,1:5] ~ dmulti(pi[tmt,i,1:5],n[tmt,i])		#Multinomial data
+			pi[tmt,i,1:5] ~ ddirch(prior[tmt,i,1:5])		#Dirichlet prior for probs.
+		}
+	}
+#Calculating summaries from a decision model
+	for (tmt in 1:2){ 
+		for (i in 1:5){ s[tmt,i,1]<- equals(i,1) }  	#Initialise starting state: 1 in STW, 0 in all other states
+		for (i in 1:4){  
+			for (t in 2:13){
+				s[tmt,i,t]<- inprod(s[tmt,1:4,t-1], pi[tmt,1:4,i]) 	# Run the model for 12 cycles. 
+																			# s[tmt,i,t] = no. in state i at time t under treatment tmt
+				}
+			E[tmt,i]<- sum(s[tmt,i,2:13])							#Sum up time spent in state i
+			}
+		E[tmt,5]<- 12 - sum(E[tmt,1:4])							#Time in TF = 12 minus time in other states.
+	}
+
+	for (i in 1:5){
+		D[i]<- E[1,i] - E[2,i]										#Additional time in state i under Seretide rather than FT
+		prob[i]<- step(D[i])										#Indicates whether Seretide gives longer time in state i
+	}
+		
+}
+
+" %>% textConnection
+
+data <- list(
+r=structure(.Data=c(210,60,0,1,1,	88,641,0,4,13,	0,0,0,0,0,	1,0,0,0,1,	
+							66,32,0,0,2,	42,752,0,5,20,	0,0,0,0,0,	0,4,0,1,0), 
+				.Dim=c(2,4,5)),
+n=structure(.Data=c(272,746,0,2,	100,819,0,5), .Dim=c(2,4)),
+prior=structure(.Data=c(1,1,1,1,1,	1,1,1,1,1,	1,1,1,1,1,	1,1,1,1,1,	
+							1,1,1,1,1,	1,1,1,1,1,	1,1,1,1,1,	1,1,1,1,1), 
+				.Dim=c(2,4,5))
+)
+
+
+initial_values <- list(
+  #Inits
+  list(pi=structure(.Data=c(.6,.1,.1,.1,.1,	.1,.6,.1,.1,.1,	.1,.1,.6,.1,.1,	.1,.1,.1,.6,.1,	
+  								.6,.1,.1,.1,.1,	.1,.6,.1,.1,.1,	.1,.1,.6,.1,.1,	.1,.1,.1,.6,.1), 
+  				.Dim=c(2,4,5))
+  ),
+  
+  #Alternative Inits
+  list(pi=structure(.Data=c(.2,.2,.2,.2,.2,	.2,.2,.2,.2,.2,	.2,.2,.2,.2,.2,	.2,.2,.2,.2,.2,
+  								.2,.2,.2,.2,.2,	.2,.2,.2,.2,.2,	.2,.2,.2,.2,.2,	.2,.2,.2,.2,.2),
+  				.Dim=c(2,4,5))
+  )
+
+  
+)
+
+parameters_to_save <- c("r", "pi", "s", "E") # What else?
+
+
+results <- jags(data = data,
+            inits = initial_values,
+            parameters.to.save = parameters_to_save,
+            model.file = model_code,
+            n.chains = length(initial_values),
+            n.adapt = 100,
+            n.iter = 50000,
+            n.burnin = 20000,
+            n.thin = 2)
+
+summary(results)
+
+```
+# `evsyn_markov_book_1`
+
+Synthesis of Studies Reporting Aggregate and Event History Data
+
+<font color="#FF0000">
+<pre>
+Error in rjags::jags.model(file = model.file, data = data, inits = inits,  : 
+  RUNTIME ERROR:
+Compilation error on line 56.
+Attempt to redefine node n[1]
+</pre>
+</font>
+
+```{r evsyn_markov_book_1, eval=FALSE}
+model_code <- "
+model {
+
+#MODEL
+
+# Random effects model for logs of study-specific  rates  lamda1 of leaving state 1
+for (s in 1:15) { loglam1[s] ~ dnorm(L,prec) 	#  Random effects model for lambda1
+						 log(lambda1[s]) <- loglam1[s]
+						gamma12[s]<-lambda1[s]*(1-rho)	#Study specific transition rates 1 to 2
+						gamma13[s]<-lambda1[s]*rho	     #Study specific transition rates 1 to 3
+						}   
+
+# PRIORS
+
+gamma23 ~ dexp(.001)                              # vague prior for 'fixed' transition rate 2 to 3
+L ~ dnorm(0,.00001)                                        # vague prior for population mean loglamda1
+tau ~ dunif(0,1)                                              # vague prior for sd for population loglamda1
+prec <- 1/(tau*tau)  
+rho ~ dbeta(1,1)                                         # vague prior for proportion going to state 2 from 1
+
+
+#LIKELIHOOD 
+
+#2 studies reported aggregated total no. of transitions 
+	for (s in 1:2){
+		for (i in 1:2){
+			r.agg[s,i,1:3]~dmulti(pi.agg[s,i,1:3],n.agg[s,i])
+		}
+	}
+	
+	for (obs in 1:6){
+		pi.agg[obs,1,1]<- exp(-(gamma12[study[obs]]+gamma13[study[obs]])*T[obs])
+		pi.agg[obs,1,2]<- gamma12[study[obs]]*(exp(-gamma23 * T[obs])  - exp(- (gamma12[study[obs]]+gamma13[study[obs]])*T[obs] ) ) /((gamma12[study[obs]]+gamma13[study[obs]])- gamma23)
+		pi.agg[obs,1,3]<- 1 - pi.agg[obs,1,1] - pi.agg[obs,1,2]
+	
+		pi.agg[obs,2,1]<- 0
+		pi.agg[obs,2,2]<- exp(-gamma23)
+		pi.agg[obs,2,3]<- 1 - pi.agg[obs,2,2]
+	}
+
+# 3 studies (4 data points) reported numbers number starting in state 1 and entering state 3 #during time T. Study 4 consists of 2 groups of individuals with different follow-up times, T
+for (i in 1 : 4) {
+       r.d[i] ~ dbin(pi.agg[(i+2),1,3],n.d[i]) 
+      }
+
+# 8 studies reporting event history data informing individual transitions
+for (i in 1:2) {r12[i] ~dpois(mu[i+5])
+                      log(mu[i+5]) <- log(E12[i])  +  log(gamma12[i+5])  }
+for (i in 1:2) {r13[i] ~dpois(mu[i+7])
+                      log(mu[i+7]) <- log(E13[i])  +  log(gamma13[i+7])   }
+for (i in 1:4) {r23[i] ~dpois(mu[i+9])
+                      log(mu[i+9]) <- log(E23[i])  +  log(gamma23)     }
+
+# 2 studies reporting event history data on first tranistion from state 1
+for (i in 1:2) {
+       n[i] <- m12[i] + m13[i]
+       n[i] ~ dpois(nu[i])                                     #   likelihood for Poisson rate
+       log(nu[i]) <- log(E[i]) +  loglam1[i+13]  
+       m13[i] ~ dbin(rho,n[i])                            # likelihood for binomial proportion going to state 3
+      }
+
+#Three different ways to summarise random effects model for lambda1, and form transition #rates. 
+
+#1. Use population mean, L
+g12[1] <- (1-rho) * exp(L)
+g13[1] <-   rho * exp(L)
+
+#2. Use predictive distribution for loglam1
+loglam1.pred~dnorm(L,prec)
+log(lambda1.pred)<-loglam1.pred
+g12[2] <- (1-rho) * lambda1.pred
+g13[2] <- rho * lambda1.pred
+
+#3. Calibrate to study 15
+g12[3] <- (1-rho) * lambda1[15]
+g13[3] <- rho * lambda1[15]
+
+#Transition probabilities over observation period T=1, for each RE summary
+for (j in 1:3){
+	P11[j]<-exp(-(g12[j]+g13[j]))
+	P12[j]<-g12[j]*(exp(-gamma23)-exp(-(g12[j]+g13[j])))/(g12[j]+g13[j]-gamma23)
+	P13[j]<- (1-P11[j]-P12[j])
+	P22[j]<- exp(-gamma23)
+	P23[j]<- 1-P22[j]
+}
+
+}
+
+" %>% textConnection
+
+# DATA LIST
+data <- list(                                                                                           
+
+#STUDIES 1-2
+#2 studies reporting aggregate data for all states, for given observation cycle, T
+	r.agg=structure(.Data=c(87,	4,	9,	
+						    					0,	3,	1,
+						
+												210,	8,	15,
+												0,		5,		3), .Dim=c(2,2,3)), 
+	n.agg=structure(.Data=c(100,	4,
+												233,	8), .Dim=c(2,2)), 
+
+# STUDIES 3-5
+#3 studies reporting no. transitions to death for given observation cycle, T
+       r.d=c(38,15,11,60),      n.d=c(181,177,103,335) , 
+
+#Observation time & study number for 6 aggregate data observations
+T=c(1,1, 2,1.5,2,5), study=c(1,2,3,4,4,5),
+
+# STUDIES 6-13
+#  8 studies with event history data on individual transitions
+   r12=c(8,20),               E12=c(120,620),
+   r13=c( 12,44),            E13=c(140,677),  
+   r23=c(9,12,5,6),         E23=c(34,35,15,25),
+
+#STUDIES 14-15
+# 2 studies with event history data on first transition from state 1
+     m12=c(18,30),     m13=c(40,75),         E=c(380,1169) #, trailing comma was OK in WinBUGS     
+
+)                                          
+     
+# INITIAL VALUES    
+
+initial_values <- list(
+  list(tau=.2,   rho=.4,    gamma23=.02,    L=-3,
+       loglam1=c(.02,.02,.02,.02,.02,   .02,.02,.02,.02, .02,   .02,.02,.02,.02,.02),loglam1.pred=.02),
+  
+  list(tau=.1,   rho=.5,    gamma23=.08,    L=-2,
+       loglam1=c(.01,.03,.01,.03,.01,   .01,.03,.01,.01, .03,   .03,.01,.02,.01,.03),loglam1.pred=.03)
+
+)
+
+parameters_to_save <- c("P11", "P12", "P13", "P22", "P23") # What else?
+
+
+results <- jags(data = data,
+            inits = initial_values,
+            parameters.to.save = parameters_to_save,
+            model.file = model_code,
+            n.chains = length(initial_values),
+            n.adapt = 100,
+            n.iter = 50000,
+            n.burnin = 20000,
+            n.thin = 2)
+
+summary(results)
+
+```
+
+
+# `evsyn_markov_book_2`
+
+Including Studies with Treatment Comparisons
+
+<font color="#FF0000">
+<pre>
+Error in rjags::jags.model(file = model.file, data = data, inits = inits,  : 
+  RUNTIME ERROR:
+Compilation error on line 70.
+Attempt to redefine node n[1]
+</pre>
+</font>
+
+```{r evsyn_markov_book_2, eval=FALSE}
+
+model_code <- "
+model {
+
+#MODEL
+
+# Random effects model for logs of study-specific  rates  lamda1 of leaving state 1
+for (s in 1:15) { loglam1[s] ~ dnorm(L,prec) 	#  Random effects model for lambda1
+						 log(lambda1[s]) <- loglam1[s]
+						gamma12[s]<-lambda1[s]*(1-rho)	#Study specific transition rates 1 to 2
+						gamma13[s]<-lambda1[s]*rho	     #Study specific transition rates 1 to 3
+						}   
+
+# PRIORS
+
+gamma23 ~ dexp(.001)                              # vague prior for 'fixed' transition rate 2 to 3
+L ~ dnorm(0,.00001)                                        # vague prior for population mean loglamda1
+tau ~ dunif(0,1)                                              # vague prior for sd for population loglamda1
+prec <- 1/(tau*tau)  
+rho ~ dbeta(1,1)                                         # vague prior for proportion going to state 2 from 1
+
+logh~dnorm(0,.00001)							#Normal prior on log-hazard ratio
+log(h)<- logh
+
+#LIKELIHOOD 
+
+#2 studies reported aggregated total no. of transitions 
+	for (s in 1:2){
+		for (i in 1:2){
+			r.agg[s,i,1:3]~dmulti(pi.agg[s,i,1:3],n.agg[s,i])
+			r.aggt[s,i,1:3]~dmulti(pi.aggt[s,i,1:3],n.aggt[s,i])
+		}
+	}
+
+	for (s in 1:2){
+		pi.aggt[s,1,1]<- exp(-(gamma12[s]*h+gamma13[s])*T[s])
+		pi.aggt[s,1,2]<- gamma12[s]*h*(exp(-gamma23 * T[s])  
+		- exp(-(gamma12[s]*h+gamma13[s])*T[s] ) ) /(gamma12[s]*h+gamma13[s] - gamma23 )
+		pi.aggt[s,1,3]<- 1 - pi.aggt[s,1,1] - pi.aggt[s,1,2]
+	
+		pi.aggt[s,2,1]<- 0
+		pi.aggt[s,2,2]<- exp(-gamma23)
+		pi.aggt[s,2,3]<- 1 - pi.aggt[s,2,2]
+	}
+
+	for (obs in 1:6){
+		pi.agg[obs,1,1]<- exp(-(gamma12[study[obs]]+gamma13[study[obs]])*T[obs])
+		pi.agg[obs,1,2]<- gamma12[study[obs]]*(exp(-gamma23 * T[obs])  - exp(- (gamma12[study[obs]]+gamma13[study[obs]])*T[obs] ) ) /((gamma12[study[obs]]+gamma13[study[obs]])- gamma23)
+		pi.agg[obs,1,3]<- 1 - pi.agg[obs,1,1] - pi.agg[obs,1,2]
+	
+		pi.agg[obs,2,1]<- 0
+		pi.agg[obs,2,2]<- exp(-gamma23)
+		pi.agg[obs,2,3]<- 1 - pi.agg[obs,2,2]
+	}
+
+# 3 studies (4 data points) reported numbers number starting in state 1 and entering state 3 #during time T. Study 4 consists of 2 groups of individuals with different follow-up times, T
+for (i in 1 : 4) {
+       r.d[i] ~ dbin(pi.agg[(i+2),1,3],n.d[i]) 
+      }
+
+# 8 studies reporting event history data informing individual transitions
+for (i in 1:2) {r12[i] ~dpois(mu[i+5])
+                      log(mu[i+5]) <- log(E12[i])  +  log(gamma12[i+5])  }
+for (i in 1:2) {r13[i] ~dpois(mu[i+7])
+                      log(mu[i+7]) <- log(E13[i])  +  log(gamma13[i+7])   }
+for (i in 1:4) {r23[i] ~dpois(mu[i+9])
+                      log(mu[i+9]) <- log(E23[i])  +  log(gamma23)     }
+
+# 2 studies reporting event history data on first tranistion from state 1
+for (i in 1:2) {
+       n[i] <- m12[i] + m13[i]
+       n[i] ~ dpois(nu[i])                                     #   likelihood for Poisson rate
+       log(nu[i]) <- log(E[i]) +  loglam1[i+13]  
+       m13[i] ~ dbin(rho,n[i])                            # likelihood for binomial proportion going to state 3
+      }
+
+#Three different ways to summarise random effects model for lambda1, and form transition #rates. 
+
+#1. Use population mean, L
+g12[1] <- (1-rho) * exp(L)
+g13[1] <-   rho * exp(L)
+
+#2. Use predictive distribution for loglam1
+loglam1.pred~dnorm(L,prec)
+log(lambda1.pred)<-loglam1.pred
+g12[2] <- (1-rho) * lambda1.pred
+g13[2] <- rho * lambda1.pred
+
+#3. Calibrate to study 15
+g12[3] <- (1-rho) * lambda1[15]
+g13[3] <- rho * lambda1[15]
+
+#Transition probabilities over observation period T=1, for each RE summary
+for (j in 1:3){
+	P11[j]<-exp(-(g12[j]+g13[j]))
+	P12[j]<-g12[j]*(exp(-gamma23)-exp(-(g12[j]+g13[j])))/(g12[j]+g13[j]-gamma23)
+	P13[j]<- (1-P11[j]-P12[j])
+	P22[j]<- exp(-gamma23)
+	P23[j]<- 1-P22[j]
+}
+
+}
+
+" %>% textConnection
+
+# DATA LIST
+data <- list(                                                                                           
+
+#STUDIES 1-2
+#2 studies reporting aggregate data for all states, for given observation cycle, T
+	r.agg=structure(.Data=c(87,	4,	9,	
+						    					0,	3,	1,
+						
+												210,	8,	15,
+												0,		5,		3), .Dim=c(2,2,3)), 
+	n.agg=structure(.Data=c(100,	4,
+												233,	8), .Dim=c(2,2)), 
+
+#Studies 1-2 also report a treatment arm
+	r.aggt=structure(.Data=c(140,	2,	14,	
+						    					0,	2,	0,
+						
+												264,	5,	27,
+												0,		3,		2), .Dim=c(2,2,3)), 
+	n.aggt=structure(.Data=c(156,	2,
+												296,	5), .Dim=c(2,2)), 
+
+# STUDIES 3-5
+#3 studies reporting no. transitions to death for given observation cycle, T
+       r.d=c(38,15,11,60),      n.d=c(181,177,103,335) , 
+
+#Observation time & study number for 6 aggregate data observations
+T=c(1,1, 2,1.5,2,5), study=c(1,2,3,4,4,5),
+
+# STUDIES 6-13
+#  8 studies with event history data on individual transitions
+   r12=c(8,20),               E12=c(120,620),
+   r13=c( 12,44),            E13=c(140,677),  
+   r23=c(9,12,5,6),         E23=c(34,35,15,25),
+
+#STUDIES 14-15
+# 2 studies with event history data on first transition from state 1
+     m12=c(18,30),     m13=c(40,75),         E=c(380,1169)     
+
+)
+
+# INITIAL VALUES
+initial_values <- list(
+  list(tau=.2,   rho=.4,    gamma23=.02,    L=-3,
+       loglam1=c(.02,.02,.02,.02,.02,   .02,.02,.02,.02, .02,   .02,.02,.02,.02,.02),loglam1.pred=.02,logh=0),
+  
+  list(tau=.1,   rho=.5,    gamma23=.08,    L=-2,
+       loglam1=c(.01,.03,.01,.03,.01,   .01,.03,.01,.01, .03,   .03,.01,.02,.01,.03),loglam1.pred=.03,logh=-1)
+)
+
+parameters_to_save <- c("P11", "P12", "P13", "P22", "P23") # What else?
+
+
+results <- jags(data = data,
+            inits = initial_values,
+            parameters.to.save = parameters_to_save,
+            model.file = model_code,
+            n.chains = length(initial_values),
+            n.adapt = 100,
+            n.iter = 50000,
+            n.burnin = 20000,
+            n.thin = 2)
+
+summary(results)
+
+```

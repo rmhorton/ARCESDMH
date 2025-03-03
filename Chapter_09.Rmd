@@ -1,0 +1,613 @@
+---
+title: 'Chapter 9: Mixed and indirect treatment comparisons'
+author: "Bob"
+date: "2025-03-01"
+output: html_document
+---
+
+<font color="#FF0000">
+None of these examples currently run in JAGS. The first 3 use the `rank` function, which is parameterized differently in JAGS than in WinBUGS. The fourth example has multi-dimensional data that I have not figured out how to import.
+
+[From Andrew Millard, via the BUGS listserv](https://stackoverflow.com/questions/26370388/use-of-rank-function-in-bugs):
+
+"The OpenBugs manual gives the definition as
+`rank(v, s) number of components of v less than or equal to s`
+which is what I had based my code on, but the manual is wrong and it should be
+`rank(v, s) number of components of v less than or equal to the s-th component of v`"
+
+</font>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r load_libraries, warning=FALSE, message=FALSE}
+library('rjags')
+library('coda')
+library('jagshelper')
+library('jagsUI')
+library('mcmcplots')  # caterplot
+library('dplyr')
+```
+
+
+
+# `mtc_fe`
+```
+Fixed effect model for Hasselblad's data
+==================================
+24 trials (including two 3-arm-trials), 
+50 data points,
+4 treatment: 
+          1=no contact (baseline)
+          2=self help
+          3=individual counselling
+          4=group counselling
+==================================
+```
+
+```
+Error in rjags::jags.model(file = model.file, data = data, inits = inits,  : 
+  RUNTIME ERROR:
+Incorrect number of parameters in function rank
+```
+
+```{r mtc_fe, eval=FALSE}
+
+
+# Model
+
+model_code <- "model{
+
+ for(i in 1:50)  {                                                                 #  loop over 50 observation
+                      r[i] ~ dbin(p[i],n[i])                                       # likelihood
+		              logit(p[i]) <- mu[s[i]]+ d[t[i]] - d[b[i]]                # model
+# Deviance residuals for data i                                                                                       
+                      rhat[i] <- p[i] * n[i]                                       # predicted values and deviance                           
+                      dev[i] <- 2 * (r[i] * (log(r[i])-log(rhat[i]))  +  (n[i]-r[i]) * (log(n[i]-r[i]) - log(n[i]-rhat[i])))    
+	            	}
+sumdev <- sum(dev[])                                                       # summed deviance
+
+for (j in 1:24) { mu[j] ~ dnorm(0,.0001)}                               # vague priors for baselines
+
+d[1] <- 0                                                                         # set effect of A rel to A as 0
+for (k in 2:4) {d[k] ~ dnorm(0,.001) }                                    # flat priors for 3 basic treatment parameters
+
+# Absolute treatment effects  
+precA <- pow(.38,-2)                                                     # prior precision for Treatment A, sd=.38 
+A ~ dnorm(-2.6,precA)                                                  # external info on A. 
+for (k in 1:4) { logit(T[k]) <- A + d[k] }                                # absolute effects T[k] for each treatment
+                   
+#Rank the treatment effects (with 1=best) & record the best treatment
+for (k in 1:4) { rk[k] <- 5 - rank(T[],k)
+                    best[k] <- equals(rk[k],1)}
+
+#All pairwise log odds ratios and odds ratios
+for (c in 1:3) { for (k in (c+1):4) { lor[c,k] <- d[k] - d[c]
+		                                       log(or[c,k]) <- lor[c,k]
+		                                    }
+	              }
+
+}
+" %>% textConnection
+
+
+# Data: same as in random effects model above
+
+data <- "s  t        r       n    b
+1    1         9     140    1
+1    3        23    140    1
+1    4        10     138    1
+2    2        11       78    2
+2    3        12       85    2
+2    4        29     170    2
+3    1        75      731    1
+3    3       363     714    1
+4    1          2      106    1
+4    3          9      205    1
+5    1        58      549    1
+5    3       237   1561    1
+6    1          0        33    1
+6    3         9         48    1
+7    1         3       100    1
+7    3        31        98    1
+8     1        1          31    1
+8     3       26        95    1
+9    1         6         39    1
+9    3       17         77    1
+10   1      79      702    1
+10   2      77      694    1
+11   1      18      671    1
+11   2       21     535     1
+12   1       64     642    1
+12   3      107    761    1 
+13   1         5       62    1
+13   3         8       90    1
+14   1      20      234    1
+14   3      34      237    1 
+15   1        0        20     1
+15   4        9        20    1
+16   1        8     116    1
+16    2     19     149    1 
+17    1     95    1107    1
+17    3    143   1031    1
+18    1     15     187    1
+18    3     36     504    1
+19    1     78     584    1 
+19    3     73     675    1 
+20    1     69   1177    1 
+20    3     54     888    1  
+21    2     20      49    2
+21    3     16      43    2
+22    2       7      66    2
+22     4    32    127    2
+23     3    12      76    3
+23     4    20      74    3
+24     3      9       55    3
+24     4      3       26    3
+" %>% read.table(text=., header=TRUE) %>% as.list
+
+
+# Starting/initial values: same as random effects model without sd
+initial_values <- list(
+  #initial 1
+  list(
+  d=c(NA,0,0,0),mu=c(0,0,0,0,0,  0,0,0,0,0,  0,0,0,0,0,  0,0,0,0,0,  0,0,0,0), A=-2
+  ),
+  
+  #initial 2
+  list(
+  d=c(NA,0.1,-1,-0.2),mu=c(1,-1,-2,0,0,    -2,1,0,2,2,    1,-1,-2,0,0,   -2,1,0,2,2,   -2,-0.5,-3,0.5), A=-3
+  )
+  
+)
+
+
+parameters_to_save <- c("e.d") # What else?
+
+
+results <- jags(data = data,
+            inits = initial_values,
+            parameters.to.save = parameters_to_save,
+            model.file = model_code,
+            n.chains = length(initial_values),
+            n.adapt = 100,
+            n.iter = 50000,
+            n.burnin = 20000,
+            n.thin = 2)
+
+summary(results)
+
+plot(results)
+```
+
+
+# `mtc_re`
+
+```
+Random effect model for Hasselblad's data
+==================================
+24 trials (including two 3-arm-trials), 
+50 data points,
+4 treatment: 
+          1=no contact (baseline)
+          2=self help
+          3=individual counselling
+          4=group counselling
+==================================
+```
+
+```
+RUNTIME ERROR:
+Incorrect number of parameters in function rank
+```
+
+See [this stackoverflow post](https://stackoverflow.com/questions/55628471/rank-function-in-jags) about the rank function in JAGS.
+
+
+```{r mtc_re, eval=FALSE}
+
+
+# Model
+
+model_code <- "model{
+
+ for(i in 1:50)  {                                                                           #  loop over 50 observation
+                      r[i] ~ dbin(p[i],n[i])                                                 # likelihood
+		              logit(p[i]) <- mu[s[i]]+ delta[i]*(1-equals(t[i],b[i]))        # model
+                      delta[i] ~ dnorm(md[i],tau)                                     # Draw random effect from distribution
+                      md[i] <- d[t[i]] - d[b[i]]                                           #  Mean of distribution
+# Deviance residuals for data i                                                                                       
+                      rhat[i] <- p[i] * n[i]                                       # predicted values and deviance                           
+                      dev[i] <- 2 * (r[i] * (log(r[i])-log(rhat[i]))  +  (n[i]-r[i]) * (log(n[i]-r[i]) - log(n[i]-rhat[i])))    
+	            	}
+sumdev <- sum(dev[])                                                       # summed deviance
+
+for (j in 1:24) { mu[j] ~ dnorm(0,.0001) }                               # vague priors for baselines
+                     
+d[1] <- 0                                                                         # set effect of A rel to A as 0
+for (k in 2:4) {d[k] ~ dnorm(0,.001) }                                    # flat priors for 3 basic treatment parameters
+
+tau <- pow(sd,-2)
+sd ~ dunif(0,2)
+
+# Absolute treatment effects  
+precA <- pow(.38,-2)                                                     # prior precision for Treatment A, sd=.38 
+A ~ dnorm(-2.6,precA)                                                  # external info on A. 
+for (k in 1:4) { logit(T[k]) <- A + d[k] }                               # absolute effects T[k] for each treatment
+                   
+#Rank the treatment effects (with 1=best) & record the best treatment
+for (k in 1:4) { rk[k] <- 5 - rank(T[],k)
+                    best[k] <- equals(rk[k],1)}
+
+#All pairwise log odds ratios and odds ratios
+for (c in 1:3) { for (k in (c+1):4) { lor[c,k] <- d[k] - d[c]
+		                                       log(or[c,k]) <- lor[c,k]
+		                                    }
+	              }
+
+}
+" %>% textConnection
+
+
+# Data
+
+data <- "s  t        r       n    b
+1    1         9     140    1
+1    3        23    140    1
+1    4        10     138    1
+2    2        11       78    2
+2    3        12       85    2
+2    4        29     170    2
+3    1        75      731    1
+3    3       363     714    1
+4    1          2      106    1
+4    3          9      205    1
+5    1        58      549    1
+5    3       237   1561    1
+6    1          0        33    1
+6    3         9         48    1
+7    1         3       100    1
+7    3        31        98    1
+8     1        1          31    1
+8     3       26        95    1
+9    1         6         39    1
+9    3       17         77    1
+10   1      79      702    1
+10   2      77      694    1
+11   1      18      671    1
+11   2       21     535     1
+12   1       64     642    1
+12   3      107    761    1 
+13   1         5       62    1
+13   3         8       90    1
+14   1      20      234    1
+14   3      34      237    1 
+15   1        0        20     1
+15   4        9        20    1
+16   1        8     116    1
+16    2     19     149    1 
+17    1     95    1107    1
+17    3    143   1031    1
+18    1     15     187    1
+18    3     36     504    1
+19    1     78     584    1 
+19    3     73     675    1 
+20    1     69   1177    1 
+20    3     54     888    1  
+21    2     20      49    2
+21    3     16      43    2
+22    2       7      66    2
+22     4    32    127    2
+23     3    12      76    3
+23     4    20      74    3
+24     3      9       55    3
+24     4      3       26    3
+" %>% read.table(text=., header=TRUE) %>% as.list
+
+
+# Starting/initial values
+initial_values <- list(
+  #initial 1
+  list(
+    d=c(NA,0,0,0),
+    mu=c(0,0,0,0,0,  0,0,0,0,0,  0,0,0,0,0,  0,0,0,0,0,  0,0,0,0), 
+    A=-2,
+    sd=1
+  ),
+  
+  #initial 2
+  list(
+    d=c(NA,0.1,-1,-0.2),
+    mu=c(1,-1,-2,0,0,    -2,1,0,2,2,    1,-1,-2,0,0,   -2,1,0,2,2,   -2,-0.5,-3,0.5), 
+    A=-3,
+    sd=.5
+  )
+
+  
+)
+
+
+parameters_to_save <- c("e.d") # What else?
+
+
+results <- jags(data = data,
+            inits = initial_values,
+            parameters.to.save = parameters_to_save,
+            model.file = model_code,
+            n.chains = length(initial_values),
+            n.adapt = 100,
+            n.iter = 50000,
+            n.burnin = 20000,
+            n.thin = 2)
+
+summary(results)
+
+plot(results)
+```
+
+
+# `mtc_re_ceac`
+
+```
+Random effects model for Hasselblad's data
+==================================
+24 trials (including two 3-arm-trials), 
+50 data points,
+4 treatment: 
+          1=no contact (baseline)
+          2=self help
+          3=individual counselling
+          4=group counselling
+==================================
+```
+
+
+
+```{r mtc_re_ceac, eval=FALSE}
+
+
+# Model
+
+model_code <- "model{
+
+# Model for log-odds of smoking cessation, for three types of trial indicated by b[i]
+  for(i in 1:50){ 
+    r[i] ~ dbin(p[i],n[i])
+    logit(p[i])<-mu[s[i]]+ delta[i]*(1-equals(t[i],b[i]))
+    #Random effects model for log-odds ratios
+    delta[i] ~ dnorm(md[i],prec)
+    md[i] <- d[t[i]] - d[b[i]]
+    #Deviance residuals for data i                                                                                       
+    rhat[i] <- p[i] * n[i]                                                                                                          
+    dev[i] <- 2 * (r[i] * (log(r[i])-log(rhat[i]))  +  (n[i]-r[i]) * (log(n[i]-r[i]) - log(n[i]-rhat[i])))    
+  }
+		
+  sumdev <- sum(dev[])
+
+  #Fixed effect priors
+  for(j in 1:24){ 
+    mu[j]~dnorm(0,.0001)
+  }
+  prec <- 1/(sd*sd)
+  sd ~ dunif(0,2)
+  
+  #Define the baseline shifts, and give priors for log-odds ratios
+	d[1]<-0
+	for (k in 2:4){
+	  d[k] ~ dnorm(0,.001) 
+  }
+
+
+  # Absolute treatment effects  
+  precA <- pow(.38,-2)                                                     # prior precision for Treatment A, sd=.38 
+  A ~ dnorm(-2.6,precA)                                                  # external info on A. 
+  for (k in 1:4) { logit(T[k]) <- A + d[k] }                               # absolute effects T[k] for each treatment
+  
+  #Rank the treatment effects (with 1=best) & record the best treatment
+  for(k in 1:4){
+    rk[k]<- 5 - rank(T[],k)
+    best[k]<-equals(rk[k],1)
+  }
+  
+  #All pairwise log odds ratios and odds ratios
+  for (c in 1:3){
+  	for (k in (c+1):4){
+  		lor[c,k] <- d[k] - d[c]
+  		log(or[c,k]) <- lor[c,k]
+  	}
+  }
+  
+  #Economic data
+  #Life-years gained
+  lyg~dnorm(15,.0625)
+  cost[1]<-0
+  cost[2]<-200
+  cost[3]<-6000
+  cost[4]<-600
+  
+  for (w in 1:50){
+  	for (k in 1:4){
+  		nb[k,w] <- T[k]*lyg*w*1000 - cost[k]
+  		p.ce[k,w] <- equals(rank(nb[,w],k),4)
+  	}	
+  }
+
+}
+
+
+" %>% textConnection
+
+
+# Data: same as in random effects model above
+
+data <- "s  t        r       n    b
+1    1         9     140    1
+1    3        23    140    1
+1    4        10     138    1
+2    2        11       78    2
+2    3        12       85    2
+2    4        29     170    2
+3    1        75      731    1
+3    3       363     714    1
+4    1          2      106    1
+4    3          9      205    1
+5    1        58      549    1
+5    3       237   1561    1
+6    1          0        33    1
+6    3         9         48    1
+7    1         3       100    1
+7    3        31        98    1
+8     1        1          31    1
+8     3       26        95    1
+9    1         6         39    1
+9    3       17         77    1
+10   1      79      702    1
+10   2      77      694    1
+11   1      18      671    1
+11   2       21     535     1
+12   1       64     642    1
+12   3      107    761    1 
+13   1         5       62    1
+13   3         8       90    1
+14   1      20      234    1
+14   3      34      237    1 
+15   1        0        20     1
+15   4        9        20    1
+16   1        8     116    1
+16    2     19     149    1 
+17    1     95    1107    1
+17    3    143   1031    1
+18    1     15     187    1
+18    3     36     504    1
+19    1     78     584    1 
+19    3     73     675    1 
+20    1     69   1177    1 
+20    3     54     888    1  
+21    2     20      49    2
+21    3     16      43    2
+22    2       7      66    2
+22     4    32    127    2
+23     3    12      76    3
+23     4    20      74    3
+24     3      9       55    3
+24     4      3       26    3
+" %>% read.table(text=., header=TRUE) %>% as.list
+
+
+# Starting/initial values: same as random effects model without sd
+initial_values <- list(
+  #initial 1
+  list(
+  d=c(NA,0,0,0),sd=1,mu=c(0,0,0,0,0,  0,0,0,0,0,  0,0,0,0,0,  0,0,0,0,0,  0,0,0,0)
+  ),
+  
+  #initial 2
+  list(
+  d=c(NA,0.1,-1,-0.2),sd=.5,mu=c(1,-1,-2,0,0,    -2,1,0,2,2,    1,-1,-2,0,0,   -2,1,0,2,2,   -2,-0.5,-3,0.5)
+  )
+  
+)
+
+
+parameters_to_save <- c("cost") # What else?
+
+
+results <- jags(data = data,
+            inits = initial_values,
+            parameters.to.save = parameters_to_save,
+            model.file = model_code,
+            n.chains = length(initial_values),
+            n.adapt = 100,
+            n.iter = 50000,
+            n.burnin = 20000,
+            n.thin = 2)
+
+summary(results)
+
+plot(results)
+```
+
+
+# mtc_re_multiarm
+
+Random effects model for multi-arm trials (any number of arms).
+
+<font color="f00"?
+NOTE: This example does not use the rank function, but it does have multi-dimensional data that I am not sure how to import
+</font>
+
+```{r mtc_re_multiarm, eval=FALSE}
+
+model_code <- "
+model{
+for(i in 1:NS){ 
+         w[i,1] <-0
+	     delta[i,t[i,1]]<-0
+	     mu[i] ~ dnorm(0,.0001)                                                   # vague priors for 24 trial baselines
+	     for (k in 1:na[i])  { 
+	            r[i,k] ~ dbin(p[i,t[i,k]],n[i,k])                                                     # binomial likelihood
+		  	  logit(p[i,t[i,k]])<-mu[i] + delta[i,t[i,k]] }                                                                    # model
+		 for (k in 2:na[i]) {
+                 delta[i,t[i,k]] ~ dnorm(md[i,t[i,k]],taud[i,t[i,k]])             # trial-specific LOR distributions
+                 md[i,t[i,k]] <-  d[t[i,k]] - d[t[i,1]]  + sw[i,k]                   # mean of LOR distributions
+                  taud[i,t[i,k]] <- tau *2*(k-1)/k                                    #precision of LOR distributions
+                  w[i,k] <- (delta[i,t[i,k]]  - d[t[i,k]] + d[t[i,1]])           #adjustment, multi-arm RCTs
+                  sw[i,k] <-sum(w[i,1:k-1])/(k-1) }                 # cumulative adjustment for multi-arm trials
+  }   
+
+d[1]<-0
+for (k in 2:NT){d[k] ~ dnorm(0,.0001) }                       #  vague priors for basic parameters
+
+sd~dunif(0,2)                                            #  vague prior for random effects standard deviation 
+tau<-1/pow(sd,2)
+	
+}
+" %>% textConnection
+
+data <- "r[,1]  n[,1]	r[,2]	n[,2]	r[,3]	n[,3]	t[,1]  t[,2] t[,3]   na[]   
+  9	  140	  23	  140	 10	138	 1      3     4      3
+ 11	   78	 12	    85	   29    170	2      3     4      3
+ 75	 731	363	 714	   NA	  1	 1      3   NA     2 
+  2	  106	  9	   205	   NA	  1	 1      3   NA     2
+ 58	 549	237	1561	 NA	   1     1      3   NA     2
+  0	    33	  9	     48	   NA	  1	 1      3   NA     2
+  3	  100	 31	    98	   NA	  1	 1      3   NA     2 
+  1	    31	 26	    95	   NA	  1	 1      3   NA     2
+  6	    39	 17	    77	   NA     1	 1      3   NA     2
+79	  702	 77	 694	   NA	   1     1      2   NA     2 
+18	  671	 21	 535	   NA	   1 	1      2   NA     2
+64	  642   107	 761	   NA	   1	 1      3   NA     2
+  5	   62	   8	    90	   NA	  1	 1      3   NA     2
+20	 234	 34	  237	   NA	   1	 1      3   NA     2
+  0	  20	    9	     20      NA	   1	 1      4   NA     2
+  8	 116	  19	  149	  NA	   1	 1      2   NA     2
+95	1107  143   1031 	   NA	   1	 1      3   NA      2
+15	 187	  36	504 	   NA	   1	 1      3   NA      2
+78	 584	 73	675  	   NA       1	 1      3   NA      2
+69    1177	 54	888	    NA	   1	 1     3   NA       2
+20	    49	 16	  43	    NA	    1	 2     3   NA      2
+  7	    66	  32   127	    NA	    1	 2     4   NA      2
+12	  76	   20	  74        NA	    1	 3     4   NA      2
+  9	   55	    3	   26  	  NA	   1	 3     4   NA     2"
+
+more_data <- list(NT=4, NS=24)
+
+initial <- list(
+  list(
+    d=c(NA,0,0,0),
+    sd=1,
+    mu=c(0,0,0,0,0,  0,0,0,0,0,  0,0,0,0,0,  0,0,0,0,0,  0,0,0,0)
+  ),
+  
+  list(
+    d=c(NA,0.1,-1,-0.2),
+    sd=.2,
+    mu=c(1,-1,-2,0,0,    -2,1,0,2,2,    1,-1,-2,0,0,   -2,1,0,2,2,   -2,-0.5,-3,0.5)
+  )
+
+  
+  
+)
+```

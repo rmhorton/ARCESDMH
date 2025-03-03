@@ -1,0 +1,444 @@
+---
+title: 'Chapter 11: Generalized evidence synthesis'
+author: "Bob"
+date: "2025-03-02"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+<font color="#FF0000"><pre>
+
+NOTE: Only the second of the three models from this chapter ('HRT_bias_allowance') currently runs in JAGS.
+
+</pre><font>
+
+```{r load_libraries, warning=FALSE, message=FALSE}
+library('rjags')
+library('coda')
+library('jagshelper')
+library('jagsUI')
+library('mcmcplots')  # caterplot
+library('dplyr')
+```
+
+
+
+
+# `HRT_power_prior`
+
+HRT - Power Prior Model
+
+Adjusted for duration - centred at 5 years
+
+Prior based on distribution of pooled effect (Lancet 1997)
+
+  OR 1.31  & 95%CI: 1.16 to 1.46
+  => logOR=0.27 & 95% CI: 0.144 to 0.382
+  => SD(logOR) = 0.061 => precision = 271.3
+
+
+<font color="#FF0000"><pre>
+Error in rjags::jags.model(file = model.file, data = data, inits = inits,  : 
+  RUNTIME ERROR:
+Compilation error on line 17.
+Attempt to redefine node rt[1,1]
+</pre></font>
+
+```{r HRT_power_prior, eval=FALSE}
+
+# Model
+
+model_code <- "
+model  {
+# Create multiple datasets
+for (i in 1:19){
+			for(k in 1:12){   
+				rc[i,k] <- rc.dat[i]
+				rt[i,k] <- rt.dat[i]
+				nc[i,k] <- nc.dat[i]
+				nt[i,k] <- nt.dat[i]
+					}
+				}
+
+# Estimate meta-analysis model for each value of alpha
+for (k in 1: 12) {
+	for( i in 1 : 19 ) {
+	    rc[i,k] ~ dbin(pc[i,k], nc[i,k])
+		rt[i,k] ~ dbin(pt[i,k], nt[i,k])
+		logit(pc[i,k]) <- mu[i,k]
+		logit(pt[i,k]) <- mu[i,k] + delta[i,k]+ beta*(duration[i]-5)
+		mu[i,k] ~ dnorm(0.0,1.0E-6)
+		delta[i,k] ~ dnorm(d[k], prec[k])
+			}					
+		d[k] ~ dnorm(0.270, prec.d[k])  # Use mean of meta-analysis of obs data
+	    OR.5years[k]<- exp(d[k])
+	    prob.OR1[k] <- step(d[k])  # probability that OR>1, i.e. increase in risk of breast ca  
+		prec[k] <- 1/tau.sq[k]
+		tau.sq[k] <- tau[k]*tau[k]
+		tau[k] ~ dunif(0,5) 
+			}
+
+# Calculate precision  of prior (from Lancet meta-analysis of observational studies) 
+# downweighted using alpha
+
+for (k in 1:12) {
+		prec.d[k] <- alpha[k]*271.3
+   }
+		 beta ~ dnorm(0.0,1.0E-6)
+	}
+" %>% textConnection
+
+
+# Data
+
+data <- list(
+  rt.dat = c(0,2,1,0,1,0,0,2,7,6,1,32,2,1,0,1,0,2,5),
+  nt.dat = c(84,56,116,62,39,31,30,100,701,1128,37,1380,232,150,215,204,243,502,337),
+  rc.dat = c(4,1,1,1,1,1,1,0,1,0,0,25,1,1,1,0,4,5,5),
+  nc.dat = c(84,259,40,20,36,70,30,51,174,137,37,1383,232,50,106,105,246,504,327),
+  duration=c(10,2,1,2,1,2.92,1,2,3,2,2,4.08,5,2,1,3.17,3,4.58,2.83),
+  alpha=c(0.000001,0.001,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0)
+)
+
+# Starting/initial values: same as random effects model without sd
+initial_values <- list(
+  list(
+    mu=structure( 
+      .Data=c(-5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5,
+  								-5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5,
+  								-5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5,
+  								-5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5,
+  								-5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5,
+  								-5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5,
+  								-5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5,
+  								-5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5,
+  								-5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5,
+  								-5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5,
+  								-5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5,
+  								-5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5), 
+      .Dim=c(19,12)
+    ),
+    delta=structure( 
+      .Data=c(-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, 
+  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54,-0.54, -0.54, -0.54,
+  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, 
+  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54,-0.54, -0.54, -0.54,
+  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, 
+  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54,-0.54, -0.54, -0.54,
+  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, 
+  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54,-0.54, -0.54, -0.54,
+  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, 
+  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54,-0.54, -0.54, -0.54,
+  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, 
+  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54,-0.54, -0.54, -0.54,
+  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, 
+  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54,-0.54, -0.54, -0.54,
+  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, 
+  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54,-0.54, -0.54, -0.54,
+  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, 
+  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54,-0.54, -0.54, -0.54,
+  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, 
+  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54,-0.54, -0.54, -0.54,
+  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, 
+  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54,-0.54, -0.54, -0.54,
+  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, 
+  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54,-0.54, -0.54, -0.54), 
+      .Dim=c(19,12)
+    ),
+    d = c(-0.51,-0.51,-0.51,-0.51,-0.51,-0.51,-0.51,-0.51,-0.51,-0.51,-0.51,-0.51),
+    beta=-0.19,
+    tau=c(1,1,1,1,1,1,1,1,1,1,1,1)
+  )
+)
+
+parameters_to_save <- c("OR.5years", "prob.OR1")
+
+
+results <- jags(data = data,
+            inits = initial_values,
+            parameters.to.save = parameters_to_save,
+            model.file = model_code,
+            n.chains = length(initial_values),
+            n.adapt = 100,
+            n.iter = 50000,
+            n.burnin = 20000,
+            n.thin = 2)
+
+summary(results)
+
+```
+
+```
+WinBUGS results
+
+	 node	 mean	 sd	 MC error	2.5%	median	97.5%	start	sample
+	OR.5years[1]	0.8338	0.4129	0.01195	0.2669	0.7939	1.692	20001	10000
+	OR.5years[2]	0.8239	0.3979	0.01004	0.2994	0.7648	1.695	20001	10000
+	OR.5years[3]	1.181	0.207	0.006385	0.8387	1.162	1.656	20001	10000
+	OR.5years[4]	1.235	0.1614	0.00419	0.947	1.225	1.579	20001	10000
+	OR.5years[5]	1.257	0.1352	0.002739	1.016	1.247	1.548	20001	10000
+	OR.5years[6]	1.27	0.1193	0.002548	1.06	1.263	1.529	20001	10000
+	OR.5years[7]	1.276	0.105	0.002092	1.085	1.271	1.502	20001	10000
+	OR.5years[8]	1.279	0.09981	0.002264	1.096	1.274	1.488	20001	10000
+	OR.5years[9]	1.285	0.09417	0.002484	1.115	1.282	1.477	20001	10000
+	OR.5years[10]	1.29	0.08679	0.001553	1.128	1.287	1.466	20001	10000
+	OR.5years[11]	1.29	0.0809	0.001679	1.14	1.287	1.458	20001	10000
+	OR.5years[12]	1.29	0.07937	0.002053	1.139	1.289	1.449	20001	10000
+	prob.OR1[1]	0.2537	0.4351	0.01604	0.0	0.0	1.0	20001	10000
+	prob.OR1[2]	0.2292	0.4203	0.01169	0.0	0.0	1.0	20001	10000
+	prob.OR1[3]	0.8087	0.3933	0.009994	0.0	1.0	1.0	20001	10000
+	prob.OR1[4]	0.9383	0.2406	0.006712	0.0	1.0	1.0	20001	10000
+	prob.OR1[5]	0.9826	0.1308	0.001813	1.0	1.0	1.0	20001	10000
+	prob.OR1[6]	0.9942	0.07594	7.808E-4	1.0	1.0	1.0	20001	10000
+	prob.OR1[7]	0.9988	0.03462	3.562E-4	1.0	1.0	1.0	20001	10000
+	prob.OR1[8]	0.9992	0.02827	2.727E-4	1.0	1.0	1.0	20001	10000
+	prob.OR1[9]	0.9999	0.009999	1.0E-4	1.0	1.0	1.0	20001	10000
+	prob.OR1[10]	0.9999	0.009999	1.0E-4	1.0	1.0	1.0	20001	10000
+	prob.OR1[11]	1.0	0.0	1.0E-12	1.0	1.0	1.0	20001	10000
+	prob.OR1[12]	1.0	0.0	1.0E-12	1.0	1.0	1.0	20001	10000
+
+```
+
+
+# `HRT_bias_allowance`
+
+HRT Bias Allowance Model
+
+Adjusted for duration - centred at 5 years
+
+Summary of observational evidence (Lancet 1997)
+
+  OR 1.31  & 95%CI: 1.16 to 1.46
+  => logOR=0.27 & 95% CI: 0.144 to 0.382
+  => SD(logOR) = 0.061 => var = 0.0037 + var.bias
+
+Var.bias derived from 19 meta-analyses of empirical estimates of 
+studies comparing RCTs and non-randomised studies
+
+
+```{r HRT_bias_allowance}
+
+# Model
+
+model_code <- "model {
+	   for(j in 1 : Nstud) {
+	   	rc[j] ~ dbin(pc[j], nc[j])
+		rt[j] ~ dbin(pt[j], nt[j])
+		logit(pc[j]) <- mu[j]
+		logit(pt[j]) <- mu[j] + delta[j] + beta*(duration[j]-5)
+		mu[j] ~ dnorm(0.0,1.0E-5)
+		delta[j] ~ dnorm(d, prec)			
+	   			}
+
+# Meta-meta-analysis of 19 meta-analyses comparing RCTs and 
+# NRCTs (Ioannidis et al 2001)
+
+	   for( j in 1 : Nma) {
+	  logRRR [j] ~ dnorm(d.bias, prec.bias)
+					}
+# Priors
+
+		prec.bias <- 1/tau.sq.bias
+		tau.sq.bias <- tau.bias*tau.bias
+	   
+	   d ~ dnorm(0.27, prec.d)
+	   prec.d <- 1/tau.sq.d
+	   tau.sq.d <- 0.0037 + tau.sq.bias
+	   
+	prec <- 1/tau.sq
+	tau.sq <- tau*tau
+		    
+	tau ~ dunif(0,5)
+	    tau.bias ~ dunif(0,5)
+	    d.bias ~ dnorm(0.0,1.0E-5)
+	    beta ~ dnorm(0.0,1.0E-5)
+	    OR<- exp(d)
+	    prob.OR1 <- step(d)
+	}
+	
+" %>% textConnection
+
+
+# Data
+
+data <- list(
+  rt = c(0,2,1,0,1,0,0,2,7,6,1,32,2,1,0,1,0,2,5),
+  nt = c(84,56,116,62,39,31,30,100,701,1128,37,1380,232,150,215,204,243,502,337),
+  rc = c(4,1,1,1,1,1,1,0,1,0,0,25,1,1,1,0,4,5,5),
+  nc = c(84,259,40,20,36,70,30,51,174,137,37,1383,232,50,106,105,246,504,327),
+  duration=c(10,2,1,2,1,2.92,1,2,3,2,2,4.08,5,2,1,3.17,3,4.58,2.83), 
+  Nstud = 19,
+  Nma=19,
+  logRRR = c(-1.406497068, -0.182721637, 0.299363577, 0.087094707,
+    0.805135683, 0.017839918, -0.167235919, 0.133656385, -0.038740828, 0.969262617, 0.083421608,
+    -0.432322562, 0, 0.347129531, 0.038258712, -0.066139803, 0.206200831, 0.1889661, -0.534435489)
+)
+
+# Starting/initial values: same as random effects model without sd
+initial_values <- list(
+  list(d = 0, 
+       tau=1, 
+       mu = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  		 delta = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  		 d.bias=0,  
+  		 tau.bias=1, 
+  		 beta=0
+  )
+)
+
+parameters_to_save <- c("OR", "beta", "d", "prob.OR1", "tau", "tau.bias")
+
+
+results <- jags(data = data,
+            inits = initial_values,
+            parameters.to.save = parameters_to_save,
+            model.file = model_code,
+            n.chains = length(initial_values),
+            n.adapt = 100,
+            n.iter = 50000,
+            n.burnin = 20000,
+            n.thin = 2)
+
+summary(results)
+
+```
+
+```
+WinBUGS results
+ node	 mean	 sd	 MC error	2.5%	median	97.5%	start	sample
+	OR	0.8954	0.3737	0.01416	0.3843	0.8282	1.845	10001	10000
+	beta	-0.1301	0.1952	0.008616	-0.5204	-0.1325	0.2612	10001	10000
+	d	-0.1862	0.3861	0.01477	-0.9563	-0.1885	0.6126	10001	10000
+	prob.OR1	0.294	0.4556	0.01666	0.0	0.0	1.0	10001	10000
+	tau	1.082	0.778	0.05142	0.03262	0.9523	2.985	10001	10000
+	tau.bias	0.5373	0.09916	0.001401	0.3867	0.5227	0.7721	10001	10000
+	
+```
+
+
+# `breast_screening`
+
+Breast Screening - 3-level Hierarchical Model for Generalised Evidence Synthesis
+
+Following Prevost et al Stat Med 2000;19 & Spiegelhalter et al (2003) Example 8.5
+
+<font color="#FF0000"><pre>
+Error in rjags::jags.model(file = model.file, data = data, inits = inits,  : 
+  RUNTIME ERROR:
+Compilation error on line 7.
+Attempt to redefine node logRR[1]
+</pre></font>
+
+```{r breast_screening, eval=FALSE}
+
+# Model
+
+model_code <- "
+model {
+ for (j in 1:Nstud) {
+       logRR[j] <- log(RR[j])
+       P[j]  <- 1/(SE[j]*SE[j])
+# Likelihood for within-type model
+       logRR[j] ~ dnorm(delta[j],P[j])
+       delta[j] ~ dnorm(phi[Type[j]],prec.stud[Type[j]])
+       }
+
+# Likelihood for between-type model
+for (i in 1:Ntype) {
+       phi[i] ~ dnorm(d,prec)
+       prec.stud[i] <- 1/psi.sq[i]
+       psi.sq[i] <- psi[i]*psi[i]
+       psi[i] ~ dnorm(0,8)I(0,)
+
+# Prior for psi is derived on basis that individual study effect is unlikely to 
+# deviate from type effect by more than 4 times or less than 1/4.
+# Therefore, upper 95% limit for psi = log(16)/(2*1.96) = 0.71.
+# Half-Normal(0,0.35^2) prior distribution has this property.
+
+} 
+
+# Priors
+     
+d ~ dnorm(0,0.1)
+
+# Prior for d is derived on the basis that the overall effect is unlikely to 
+# to exceed 500 in favour of either screening or control.
+# Therefore, prior SD = log(500)/1.96 = 3.17 & precision = 1/(3.17^2) = 0.1.
+
+prec <- 1/tau.sq
+tau.sq <- tau*tau
+tau ~ dnorm(0,30)I(0,)
+
+# Prior for tau is derived on the basis that an specific type effect is unlikely 
+# to deviate from the overall pooled effect (d) by more than 2 or less than 1/2.
+# Therefore, upper 95%  limit for tau = log(2)/(2*1.96) = 0.018.
+# Half-Normal(0,0.18^2) prior distribution has this property.
+ 
+
+# Transformation to Relative Risk scale 
+for (i in 1:Ntype) {
+RR.type[i] <- exp(phi[i])
+}
+RR.ov <- exp(d)
+}
+" %>% textConnection
+
+
+# Data
+
+data <- list(
+  RR=c(0.70,0.66,0.79,0.80,0.64,0.80,0.80,0.26,0.30,0.24), 
+  SE=c(0.17,0.11,0.23,0.19,0.27,0.11,0.045,0.48,0.43,0.30),
+  Type=c(1,1,1,1,1,2,2,2,2,2), # (type: 1=RCTs, 2=Obs)
+  Nstud=10,
+  Ntype=2
+)
+
+# Starting/initial values: same as random effects model without sd
+initial_values <- list(
+  list(
+    delta=c(0,0,0,0,0,0,0,0,0,0),
+    phi=c(0,0),
+    d=0,
+    tau=1,
+    psi=c(1,1)
+  )
+)
+
+
+parameters_to_save <- c("RR.ov", "RR.type", "d", "phi", "psi", "tau")
+
+
+results <- jags(data = data,
+            inits = initial_values,
+            parameters.to.save = parameters_to_save,
+            model.file = model_code,
+            n.chains = length(initial_values),
+            n.adapt = 100,
+            n.iter = 50000,
+            n.burnin = 20000,
+            n.thin = 2)
+
+summary(results)
+
+```
+
+```
+Results from WinBUGS
+	node	 mean	 sd	 MC error	2.5%	median	97.5%	start	sample
+	RR.ov	0.6518	0.1066	0.002882	0.4429	0.6503	0.8739	20001	10000
+	RR.type[1]	0.6847	0.06534	0.002545	0.5622	0.682	0.8209	20001	10000
+	RR.type[2]	0.6142	0.1066	0.003044	0.4014	0.6182	0.8172	20001	10000
+	d	-0.4416	0.1667	0.004506	-0.8145	-0.4303	-0.1348	20001	10000
+	phi[1]	-0.3834	0.09619	0.003775	-0.5759	-0.3827	-0.1974	20001	10000
+	phi[2]	-0.5033	0.1814	0.00515	-0.9128	-0.4809	-0.2019	20001	10000
+	psi[1]	0.1047	0.09434	0.003594	0.002431	0.07846	0.3512	20001	10000
+	psi[2]	0.4653	0.1672	0.003304	0.1885	0.4476	0.8519	20001	10000
+	tau	0.14	0.1053	0.002884	0.005694	0.1203	0.3903	20001	10000
+
+```

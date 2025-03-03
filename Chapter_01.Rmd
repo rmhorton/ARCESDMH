@@ -1,0 +1,46 @@
+---
+title: 'Chapter 1: Introduction'
+author: "Bob"
+date: "2025-03-02"
+output: ioslides_presentation
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Evidence synthesis for decision making in healthcare
+
+### Fusion of ideas from
+* health economics
+* medical statistics
+* epidemiology
+* decision analysis
+
+
+## Health economics
+
+Net Benefit Analysis puts health gains and costs on the same basis, allowing us to use Bayesian Expected value decision making.
+
+## Decision making under uncertainty
+
+* deterministic model: decision tree
+* probabilistic modeling
+  - maps parameter onto decision uncertainty
+
+## Evidence-based medicine
+* protocols for inclusion or exclusion of evidence in reviews and summary measures.
+* quality of evidence affects uncertainty
+
+## Baysean statistics
+* MCMC models makes Bayesian data analysis routinely accessible.
+
+## Vocabulary
+* QALY: Quality-adjusted life year
+* $\lambda$ (lambda): monetary value of one QALY
+* $p_1$: probability of success on treatment 1
+* $p_2$: probability of success on treatment 2
+* $\delta$ (delta) : Log odds ratio
+* $\Delta_p$ : difference in probability of success ($p_2 - p_1$)
+* INB: Incremental Net Benefit $INB = \lambda \delta_p \delta_U - \delta_C$
+

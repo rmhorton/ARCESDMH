@@ -1,0 +1,163 @@
+---
+title: 'Chapter 12: Expected value of information for research prioritization and study design'
+author: "Bob"
+date: "2025-03-02"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r load_libraries, warning=FALSE, message=FALSE}
+library('rjags')
+library('coda')
+library('jagshelper')
+library('jagsUI')
+library('mcmcplots')  # caterplot
+library('dplyr')
+```
+
+
+# `hivepi_12_evppi`
+
+About the WinBUGS [ranked](https://sourceforge.net/p/mcmc-jags/discussion/610037/thread/64ce3a9c/) function:
+
+In OpenBUGS:
+y <- ranked(x,s)
+
+In JAGS:
+x.sorted <- sort(x)
+y <- x.sorted[s]
+
+
+```{r hivepi_12_evppi}
+
+# Model
+
+model_code <- "
+model{
+#  LIKELIHOOD AND DIAGNOSTICS
+   for(i in 1: 12) {
+       r[i] ~ dbin(p[i],n[i])                                                       #  data numerators and denominators
+       rhat[i] <- p[i] * n[i]               
+       dev[i] <- 2 * (r[i] * log(r[i]/rhat[i])  +  (n[i]-r[i]) * log((n[i]-r[i])/(n[i]-rhat[i])))    
+    }
+    sumdev <- sum(dev[])                                       
+
+#  SET PRIORS   
+   a ~ dbeta( 1,2)            
+   z ~ dbeta (1,1)      
+   b <- z * (1-a)             #  sets constraint (1-a-b > 0)       
+   c ~ dbeta (1,1)             
+   d ~ dbeta (1,1)             
+   e ~ dbeta (1,1)            
+   f ~ dbeta (1,1)              
+   g ~ dbeta (1,1)              
+   h ~ dbeta(1,1)              
+   w ~ dbeta(1,1)
+
+# VECTOR p[1:12] HOLDS THE EXPECTED PROBABILITIES FOR EACH DATA POINT
+   p[1] <- a
+   p[2] <- b
+   p[3] <- c
+   p[4] <- d
+   p[5] <- (d*b + e*(1-a-b))/(1- a)
+   p[6] <- c*a + d*b + e*(1-a-b) 
+   p[7] <- f*c*a / (f*c*a + g*d*b  + h*e*(1-a-b)) 
+   p[8] <- g*d*b / (g*d*b + h*e*(1-a-b))
+   p[9] <- (f*c*a + g*d*b  + h*e*(1-a-b)) / p[6]
+   p[10] <- g
+   p[11] <- w
+   p[12] <- d*b/(d*b+e*(1-a-b))  +  w*e*(1-a-b)/(d*b + e*(1-a-b)) 
+   
+# NET BENEFIT OF MATERNAL DIAGNOSIS, INCREMENTAL NET BENEFIT, EVPI
+   Y ~ dgamma( 0.56,3)I(, 2)
+   M <-  60012 - 54296*Y                                 #  distribution for net benefit of maternal diagnosis       
+
+#  Incremental NB relative to Targeted Testing, k=1 Targeted, k=2 Universal.
+   nb[1] <- 0
+   nb[2] <-  105000*(1-a-b) * (M * e * (1-h) - 3.0*(1-e*h))       
+   # vpi <- 7.7217*(ranked(nb[],2) - nb[k.current])
+   nb_sorted <- sort(nb)
+   vpi <- 7.7217*(nb_sorted[2] - nb[k.current])
+   p.targeted<- 1 - step(nb[2])
+
+#EVPPI for the epidemiology model parameters. Input posterior mean for nbmd, E.M
+	nb.epi[1]<- 0
+	nb.epi[2]<- 105000*(1-a-b) * (E.M * e * (1-h) - 3.0*(1-e*h)) 
+	# vppi.epi<-7.7217*(ranked(nb.epi[],2) - nb[k.current])
+	nb_epi_sorted <- sort(nb.epi)
+	vppi.epi <- 7.7217*(nb_epi_sorted[2] - nb[k.current])
+
+#EVPPI for the economic model parameters. Input posterior mean for nbmd, M.post
+	beta1<- (1-a-b)*e*(1-h)
+	beta2<-(1-a-b)*(1-e*h)
+	nb.ec[1] <-0
+	nb.ec[2] <- 105000*M*E.beta1 - 105000*3.0*E.beta2
+	# vppi.ec <- 7.7217*(ranked(nb.ec[],2) - nb[k.current])
+	nb_ec_sorted <- sort(nb.ec)
+	vppi.ec <- 7.7217*(nb_ec_sorted[2] - nb[k.current])
+
+                                               
+}
+" %>% textConnection
+
+
+# Data
+
+data <- list(  
+          r=c(11044,12,252,10,74,254,43,4,87,12,14,5),
+          n=c(104577,882,15428,473,136139,102287,60,17,254,15,118,31),
+          k.current=2, E.M=49940.29, E.beta1=2.481787E-4, E.beta2=0.8851898
+        )
+
+
+# Starting/initial values: same as random effects model without sd
+initial_values <- list(
+  list(a=.5,z=.5,c=.5,d=.5,e=.5,f=.5,g=.5,h=.5,w=.5,Y=.2),
+  list(a=.1,z=.1,c=.1,d=.1,e=.1,f=.1,g=.1,h=.1,w=.1,Y=.5)
+)
+
+parameters_to_save <- c("p.targeted", "M", "beta1", "beta2", 
+                        "nb[2]", "nb.ec[2]", "nb.epi[2]", 
+                        "vpi", "vppi.ec", "vppi.epi")
+
+results <- jags(data = data,
+            inits = initial_values,
+            parameters.to.save = parameters_to_save,
+            model.file = model_code,
+            n.chains = length(initial_values),
+            n.adapt = 100,
+            n.iter = 1000000,
+            n.burnin = 50000,
+            n.thin = 2)
+
+results_summary <- summary(results) %>% as.data.frame()
+
+results_summary %>% knitr::kable(format='pipe',  digits = 1, format.args = list(scientific = FALSE))
+```
+
+## WinBUGS results
+
+```{r winbugs_results, echo=FALSE}
+WinBUGS_results <- "
+node	 mean	 sd	 MC error	2.5%	median	97.5%	start	sample
+nb[2]	1022481.7	516613.59	639.95834	-38033.965	1040379.9	1983194.5	50001	1000000
+vpi	71669.841	605089.17	597.04476	0.0	0.0	293765.41	50001	1000000
+p.targeted	0.02851	0.1664	1.672E-4	0.0	0.0	1.0	50001	1000000
+M	49940.29	13209.67	12.91661	12035.74	54949.47	59991.79	50001	1000000
+beta1	2.481787E-4	7.10887E-5	1.064492E-7	1.079914E-4	2.481485E-4	3.878671E-4	50001	1000000
+beta2	0.8851898	0.002782936	4.305071E-6	0.8790115	0.8854552	0.8898799	50001	1000000
+nb[2]	1022482.0	516613.6	639.9583	-38033.96	1040380.0	1983195.0	50001	1000000
+nb.ec[2]	1022547.0	344227.6	336.5909	34801.62	1153081.0	1284477.0	50001	1000000
+nb.epi[2]	1022548.0	372688.2	558.0594	287556.1	1022381.0	1754849.0	50001	1000000
+vpi	71669.84	605089.2	597.0448	0.0	0.0	293765.4	50001	1000000
+vppi.ec	67742.89	3034702.0	4341.711	-6005312.0	69364.04	6187745.0	50001	1000000
+vppi.epi	2735.632	2764985.0	2717.789	-2675797.0	-865648.6	7803743.0	50001	1000000
+" %>% read.delim(text=., sep='\t')
+
+WinBUGS_results %>% knitr::kable(format='pipe',  digits = 1, format.args = list(scientific = FALSE))
+```
