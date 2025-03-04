@@ -358,11 +358,18 @@ comparisons</h1>
 </div>
 
 
-<p><font color="#FF0000"> None of these examples currently run in JAGS.
-The first 3 use the <code>rank</code> function, which is parameterized
-differently in JAGS than in WinBUGS. The fourth example has
-multi-dimensional data that I have not figured out how to import.
-</font></p>
+<p><font color="#008800"></p>
+<p>These results need to be carefully checked against WinBUGS.</p>
+<p>The first 3 examples use the <code>rank</code> function, which is
+parameterized differently in JAGS than in WinBUGS. See <a href="https://stackoverflow.com/questions/55628471/rank-function-in-jags">this
+stackoverflow post</a>.</p>
+<p>“The OpenBugs manual gives the definition as
+<code>rank(v, s) number of components of v less than or equal to s</code>
+which is what I had based my code on, but the manual is wrong and it
+should be
+<code>rank(v, s) number of components of v less than or equal to the s-th component of v</code>”</p>
+<p>The fourth example has multi-dimensional data that I reformatted in
+code. </font></p>
 <pre class="r"><code>library(&#39;rjags&#39;)
 library(&#39;coda&#39;)
 library(&#39;jagshelper&#39;)
@@ -381,42 +388,45 @@ library(&#39;dplyr&#39;)</code></pre>
           3=individual counselling
           4=group counselling
 ==================================</code></pre>
-<pre><code>Error in rjags::jags.model(file = model.file, data = data, inits = inits,  : 
-  RUNTIME ERROR:
-Incorrect number of parameters in function rank</code></pre>
 <pre class="r"><code># Model
 
-model_code &lt;- &quot;model{
+model_code &lt;- &quot;
+model{
 
- for(i in 1:50)  {                                                                 #  loop over 50 observation
-                      r[i] ~ dbin(p[i],n[i])                                       # likelihood
-                      logit(p[i]) &lt;- mu[s[i]]+ d[t[i]] - d[b[i]]                # model
-# Deviance residuals for data i                                                                                       
-                      rhat[i] &lt;- p[i] * n[i]                                       # predicted values and deviance                           
-                      dev[i] &lt;- 2 * (r[i] * (log(r[i])-log(rhat[i]))  +  (n[i]-r[i]) * (log(n[i]-r[i]) - log(n[i]-rhat[i])))    
-                    }
-sumdev &lt;- sum(dev[])                                                       # summed deviance
+  for(i in 1:50)  {                                           # loop over 50 observation
+    r[i] ~ dbin(p[i],n[i])                                    # likelihood
+    logit(p[i]) &lt;- mu[s[i]]+ d[t[i]] - d[b[i]]                # model
+    # Deviance residuals for data i                                                                                       
+    rhat[i] &lt;- p[i] * n[i]                                    # predicted values and deviance                           
+    dev[i] &lt;- 2 * (r[i] * (log(r[i])-log(rhat[i]))  +  (n[i]-r[i]) * (log(n[i]-r[i]) - log(n[i]-rhat[i])))    
+  }
+  sumdev &lt;- sum(dev[])                                        # summed deviance
 
-for (j in 1:24) { mu[j] ~ dnorm(0,.0001)}                               # vague priors for baselines
+  for (j in 1:24) { mu[j] ~ dnorm(0,.0001)}                   # vague priors for baselines
+  
+  d[1] &lt;- 0                                                   # set effect of A rel to A as 0
+  for (k in 2:4) {d[k] ~ dnorm(0,.001) }                      # flat priors for 3 basic treatment parameters
+  
+  # Absolute treatment effects  
+  precA &lt;- pow(.38,-2)                                        # prior precision for Treatment A, sd=.38 
+  A ~ dnorm(-2.6,precA)                                       # external info on A. 
+  for (k in 1:4) { logit(T[k]) &lt;- A + d[k] }                  # absolute effects T[k] for each treatment
+                     
+  # Rank the treatment effects (with 1=best) &amp; record the best treatment
+  rank_T_results &lt;-  rank(T[]) # !!! Bob
+  for (k in 1:4) { 
+    # rk[k] &lt;- 5 - rank(T[],k)
+    rk[k] &lt;- 5 - rank_T_results[k]
+    best[k] &lt;- equals(rk[k],1)
+  }
 
-d[1] &lt;- 0                                                                         # set effect of A rel to A as 0
-for (k in 2:4) {d[k] ~ dnorm(0,.001) }                                    # flat priors for 3 basic treatment parameters
-
-# Absolute treatment effects  
-precA &lt;- pow(.38,-2)                                                     # prior precision for Treatment A, sd=.38 
-A ~ dnorm(-2.6,precA)                                                  # external info on A. 
-for (k in 1:4) { logit(T[k]) &lt;- A + d[k] }                                # absolute effects T[k] for each treatment
-                   
-#Rank the treatment effects (with 1=best) &amp; record the best treatment
-for (k in 1:4) { rk[k] &lt;- 5 - rank(T[],k)
-                    best[k] &lt;- equals(rk[k],1)}
-
-#All pairwise log odds ratios and odds ratios
-for (c in 1:3) { for (k in (c+1):4) { lor[c,k] &lt;- d[k] - d[c]
-                                               log(or[c,k]) &lt;- lor[c,k]
-                                            }
-                  }
-
+  # All pairwise log odds ratios and odds ratios
+  for (c in 1:3) { 
+    for (k in (c+1):4) { 
+      lor[c,k] &lt;- d[k] - d[c]
+      log(or[c,k]) &lt;- lor[c,k]
+    }
+  }
 }
 &quot; %&gt;% textConnection
 
@@ -492,7 +502,7 @@ initial_values &lt;- list(
 )
 
 
-parameters_to_save &lt;- c(&quot;e.d&quot;) # What else?
+parameters_to_save &lt;- c(&quot;r&quot;, &quot;delta&quot;, &quot;tau&quot;) # What else?
 
 
 results &lt;- jags(data = data,
@@ -503,11 +513,145 @@ results &lt;- jags(data = data,
             n.adapt = 100,
             n.iter = 50000,
             n.burnin = 20000,
-            n.thin = 2)
-
-summary(results)
-
-plot(results)</code></pre>
+            n.thin = 2)</code></pre>
+<pre><code>## 
+## Processing function input....... 
+## 
+## Done. 
+##  
+## Compiling model graph
+##    Resolving undeclared variables
+##    Allocating nodes
+## Graph information:
+##    Observed stochastic nodes: 50
+##    Unobserved stochastic nodes: 28
+##    Total graph size: 1104
+## 
+## Initializing model
+## 
+## Adaptive phase, 100 iterations x 2 chains 
+## If no progress bar appears JAGS has decided not to adapt 
+##  
+## 
+##  Burn-in phase, 20000 iterations x 2 chains 
+##  
+## 
+## Sampling from joint posterior, 30000 iterations x 2 chains 
+## </code></pre>
+<pre><code>## Warning in FUN(X[[i]], ...): Failed to set trace monitor for delta
+## Variable delta not found</code></pre>
+<pre><code>## Warning in FUN(X[[i]], ...): Failed to set trace monitor for tau
+## Variable tau not found</code></pre>
+<pre><code>## 
+## Calculating statistics....... 
+## 
+## Done.</code></pre>
+<pre class="r"><code>summary(results)</code></pre>
+<pre><code>##              mean       sd     2.5%      25%      50%      75%    97.5%
+## r[1]       9.0000 0.000000   9.0000   9.0000   9.0000   9.0000   9.0000
+## r[2]      23.0000 0.000000  23.0000  23.0000  23.0000  23.0000  23.0000
+## r[3]      10.0000 0.000000  10.0000  10.0000  10.0000  10.0000  10.0000
+## r[4]      11.0000 0.000000  11.0000  11.0000  11.0000  11.0000  11.0000
+## r[5]      12.0000 0.000000  12.0000  12.0000  12.0000  12.0000  12.0000
+## r[6]      29.0000 0.000000  29.0000  29.0000  29.0000  29.0000  29.0000
+## r[7]      75.0000 0.000000  75.0000  75.0000  75.0000  75.0000  75.0000
+## r[8]     363.0000 0.000000 363.0000 363.0000 363.0000 363.0000 363.0000
+## r[9]       2.0000 0.000000   2.0000   2.0000   2.0000   2.0000   2.0000
+## r[10]      9.0000 0.000000   9.0000   9.0000   9.0000   9.0000   9.0000
+## r[11]     58.0000 0.000000  58.0000  58.0000  58.0000  58.0000  58.0000
+## r[12]    237.0000 0.000000 237.0000 237.0000 237.0000 237.0000 237.0000
+## r[13]      0.0000 0.000000   0.0000   0.0000   0.0000   0.0000   0.0000
+## r[14]      9.0000 0.000000   9.0000   9.0000   9.0000   9.0000   9.0000
+## r[15]      3.0000 0.000000   3.0000   3.0000   3.0000   3.0000   3.0000
+## r[16]     31.0000 0.000000  31.0000  31.0000  31.0000  31.0000  31.0000
+## r[17]      1.0000 0.000000   1.0000   1.0000   1.0000   1.0000   1.0000
+## r[18]     26.0000 0.000000  26.0000  26.0000  26.0000  26.0000  26.0000
+## r[19]      6.0000 0.000000   6.0000   6.0000   6.0000   6.0000   6.0000
+## r[20]     17.0000 0.000000  17.0000  17.0000  17.0000  17.0000  17.0000
+## r[21]     79.0000 0.000000  79.0000  79.0000  79.0000  79.0000  79.0000
+## r[22]     77.0000 0.000000  77.0000  77.0000  77.0000  77.0000  77.0000
+## r[23]     18.0000 0.000000  18.0000  18.0000  18.0000  18.0000  18.0000
+## r[24]     21.0000 0.000000  21.0000  21.0000  21.0000  21.0000  21.0000
+## r[25]     64.0000 0.000000  64.0000  64.0000  64.0000  64.0000  64.0000
+## r[26]    107.0000 0.000000 107.0000 107.0000 107.0000 107.0000 107.0000
+## r[27]      5.0000 0.000000   5.0000   5.0000   5.0000   5.0000   5.0000
+## r[28]      8.0000 0.000000   8.0000   8.0000   8.0000   8.0000   8.0000
+## r[29]     20.0000 0.000000  20.0000  20.0000  20.0000  20.0000  20.0000
+## r[30]     34.0000 0.000000  34.0000  34.0000  34.0000  34.0000  34.0000
+## r[31]      0.0000 0.000000   0.0000   0.0000   0.0000   0.0000   0.0000
+## r[32]      9.0000 0.000000   9.0000   9.0000   9.0000   9.0000   9.0000
+## r[33]      8.0000 0.000000   8.0000   8.0000   8.0000   8.0000   8.0000
+## r[34]     19.0000 0.000000  19.0000  19.0000  19.0000  19.0000  19.0000
+## r[35]     95.0000 0.000000  95.0000  95.0000  95.0000  95.0000  95.0000
+## r[36]    143.0000 0.000000 143.0000 143.0000 143.0000 143.0000 143.0000
+## r[37]     15.0000 0.000000  15.0000  15.0000  15.0000  15.0000  15.0000
+## r[38]     36.0000 0.000000  36.0000  36.0000  36.0000  36.0000  36.0000
+## r[39]     78.0000 0.000000  78.0000  78.0000  78.0000  78.0000  78.0000
+## r[40]     73.0000 0.000000  73.0000  73.0000  73.0000  73.0000  73.0000
+## r[41]     69.0000 0.000000  69.0000  69.0000  69.0000  69.0000  69.0000
+## r[42]     54.0000 0.000000  54.0000  54.0000  54.0000  54.0000  54.0000
+## r[43]     20.0000 0.000000  20.0000  20.0000  20.0000  20.0000  20.0000
+## r[44]     16.0000 0.000000  16.0000  16.0000  16.0000  16.0000  16.0000
+## r[45]      7.0000 0.000000   7.0000   7.0000   7.0000   7.0000   7.0000
+## r[46]     32.0000 0.000000  32.0000  32.0000  32.0000  32.0000  32.0000
+## r[47]     12.0000 0.000000  12.0000  12.0000  12.0000  12.0000  12.0000
+## r[48]     20.0000 0.000000  20.0000  20.0000  20.0000  20.0000  20.0000
+## r[49]      9.0000 0.000000   9.0000   9.0000   9.0000   9.0000   9.0000
+## r[50]      3.0000 0.000000   3.0000   3.0000   3.0000   3.0000   3.0000
+## deviance 494.9034 7.386851 482.5266 489.6135 494.2042 499.4104 511.0354
+##              Rhat n.eff overlap0 f
+## r[1]           NA     1        0 1
+## r[2]           NA     1        0 1
+## r[3]           NA     1        0 1
+## r[4]           NA     1        0 1
+## r[5]           NA     1        0 1
+## r[6]           NA     1        0 1
+## r[7]           NA     1        0 1
+## r[8]           NA     1        0 1
+## r[9]           NA     1        0 1
+## r[10]          NA     1        0 1
+## r[11]          NA     1        0 1
+## r[12]          NA     1        0 1
+## r[13]          NA     1        1 1
+## r[14]          NA     1        0 1
+## r[15]          NA     1        0 1
+## r[16]          NA     1        0 1
+## r[17]          NA     1        0 1
+## r[18]          NA     1        0 1
+## r[19]          NA     1        0 1
+## r[20]          NA     1        0 1
+## r[21]          NA     1        0 1
+## r[22]          NA     1        0 1
+## r[23]          NA     1        0 1
+## r[24]          NA     1        0 1
+## r[25]          NA     1        0 1
+## r[26]          NA     1        0 1
+## r[27]          NA     1        0 1
+## r[28]          NA     1        0 1
+## r[29]          NA     1        0 1
+## r[30]          NA     1        0 1
+## r[31]          NA     1        1 1
+## r[32]          NA     1        0 1
+## r[33]          NA     1        0 1
+## r[34]          NA     1        0 1
+## r[35]          NA     1        0 1
+## r[36]          NA     1        0 1
+## r[37]          NA     1        0 1
+## r[38]          NA     1        0 1
+## r[39]          NA     1        0 1
+## r[40]          NA     1        0 1
+## r[41]          NA     1        0 1
+## r[42]          NA     1        0 1
+## r[43]          NA     1        0 1
+## r[44]          NA     1        0 1
+## r[45]          NA     1        0 1
+## r[46]          NA     1        0 1
+## r[47]          NA     1        0 1
+## r[48]          NA     1        0 1
+## r[49]          NA     1        0 1
+## r[50]          NA     1        0 1
+## deviance 1.000334  4108        0 1</code></pre>
+<pre class="r"><code># plot(results)</code></pre>
 </div>
 <div id="mtc_re" class="section level1">
 <h1><code>mtc_re</code></h1>
@@ -521,47 +665,49 @@ plot(results)</code></pre>
           3=individual counselling
           4=group counselling
 ==================================</code></pre>
-<pre><code>RUNTIME ERROR:
-Incorrect number of parameters in function rank</code></pre>
-<p>See <a href="https://stackoverflow.com/questions/55628471/rank-function-in-jags">this
-stackoverflow post</a> about the rank function in JAGS.</p>
 <pre class="r"><code># Model
 
 model_code &lt;- &quot;model{
 
- for(i in 1:50)  {                                                                           #  loop over 50 observation
-                      r[i] ~ dbin(p[i],n[i])                                                 # likelihood
-                      logit(p[i]) &lt;- mu[s[i]]+ delta[i]*(1-equals(t[i],b[i]))        # model
-                      delta[i] ~ dnorm(md[i],tau)                                     # Draw random effect from distribution
-                      md[i] &lt;- d[t[i]] - d[b[i]]                                           #  Mean of distribution
-# Deviance residuals for data i                                                                                       
-                      rhat[i] &lt;- p[i] * n[i]                                       # predicted values and deviance                           
-                      dev[i] &lt;- 2 * (r[i] * (log(r[i])-log(rhat[i]))  +  (n[i]-r[i]) * (log(n[i]-r[i]) - log(n[i]-rhat[i])))    
-                    }
-sumdev &lt;- sum(dev[])                                                       # summed deviance
-
-for (j in 1:24) { mu[j] ~ dnorm(0,.0001) }                               # vague priors for baselines
+  for(i in 1:50)  {                                         #  loop over 50 observation
+    r[i] ~ dbin(p[i],n[i])                                  # likelihood
+    logit(p[i]) &lt;- mu[s[i]]+ delta[i]*(1-equals(t[i],b[i])) # model
+    delta[i] ~ dnorm(md[i],tau)                             # Draw random effect from distribution
+    md[i] &lt;- d[t[i]] - d[b[i]]                              #  Mean of distribution
+    # Deviance residuals for data i                                                                                       
+    rhat[i] &lt;- p[i] * n[i]                                  # predicted values and deviance                           
+    dev[i] &lt;- 2 * (r[i] * (log(r[i])-log(rhat[i]))  +  (n[i]-r[i]) * (log(n[i]-r[i]) - log(n[i]-rhat[i])))    
+  }
+  sumdev &lt;- sum(dev[])                                      # summed deviance
+  
+  for (j in 1:24) { mu[j] ~ dnorm(0,.0001) }                # vague priors for baselines
+                       
+  d[1] &lt;- 0                                                 # set effect of A rel to A as 0
+  for (k in 2:4) {d[k] ~ dnorm(0,.001) }                    # flat priors for 3 basic treatment parameters
+  
+  tau &lt;- pow(sd,-2)
+  sd ~ dunif(0,2)
+  
+  # Absolute treatment effects  
+  precA &lt;- pow(.38,-2)                                      # prior precision for Treatment A, sd=.38 
+  A ~ dnorm(-2.6,precA)                                     # external info on A. 
+  for (k in 1:4) { logit(T[k]) &lt;- A + d[k] }                # absolute effects T[k] for each treatment
                      
-d[1] &lt;- 0                                                                         # set effect of A rel to A as 0
-for (k in 2:4) {d[k] ~ dnorm(0,.001) }                                    # flat priors for 3 basic treatment parameters
+  #Rank the treatment effects (with 1=best) &amp; record the best treatment
+  rank_T_results &lt;- rank(T[]) # !!! rank outside loop
+  for (k in 1:4) { 
+    # !!! rk[k] &lt;- 5 - rank(T[],k)
+    rk[k] &lt;- 5 - rank_T_results[k]
+    best[k] &lt;- equals(rk[k],1)
+  }
 
-tau &lt;- pow(sd,-2)
-sd ~ dunif(0,2)
-
-# Absolute treatment effects  
-precA &lt;- pow(.38,-2)                                                     # prior precision for Treatment A, sd=.38 
-A ~ dnorm(-2.6,precA)                                                  # external info on A. 
-for (k in 1:4) { logit(T[k]) &lt;- A + d[k] }                               # absolute effects T[k] for each treatment
-                   
-#Rank the treatment effects (with 1=best) &amp; record the best treatment
-for (k in 1:4) { rk[k] &lt;- 5 - rank(T[],k)
-                    best[k] &lt;- equals(rk[k],1)}
-
-#All pairwise log odds ratios and odds ratios
-for (c in 1:3) { for (k in (c+1):4) { lor[c,k] &lt;- d[k] - d[c]
-                                               log(or[c,k]) &lt;- lor[c,k]
-                                            }
-                  }
+  #All pairwise log odds ratios and odds ratios
+  for (c in 1:3) { 
+    for (k in (c+1):4) { 
+      lor[c,k] &lt;- d[k] - d[c]
+      log(or[c,k]) &lt;- lor[c,k]
+    }
+  }
 
 }
 &quot; %&gt;% textConnection
@@ -645,7 +791,7 @@ initial_values &lt;- list(
 )
 
 
-parameters_to_save &lt;- c(&quot;e.d&quot;) # What else?
+parameters_to_save &lt;- c(&quot;r&quot;, &quot;delta&quot;, &quot;tau&quot;) # What else?
 
 
 results &lt;- jags(data = data,
@@ -656,11 +802,243 @@ results &lt;- jags(data = data,
             n.adapt = 100,
             n.iter = 50000,
             n.burnin = 20000,
-            n.thin = 2)
-
-summary(results)
-
-plot(results)</code></pre>
+            n.thin = 2)</code></pre>
+<pre><code>## 
+## Processing function input....... 
+## 
+## Done. 
+##  
+## Compiling model graph
+##    Resolving undeclared variables
+##    Allocating nodes
+## Graph information:
+##    Observed stochastic nodes: 50
+##    Unobserved stochastic nodes: 79
+##    Total graph size: 1170
+## 
+## Initializing model
+## 
+## Adaptive phase, 100 iterations x 2 chains 
+## If no progress bar appears JAGS has decided not to adapt 
+##  
+## 
+##  Burn-in phase, 20000 iterations x 2 chains 
+##  
+## 
+## Sampling from joint posterior, 30000 iterations x 2 chains 
+##  
+## 
+## Calculating statistics....... 
+## 
+## Done.</code></pre>
+<pre class="r"><code>summary(results)</code></pre>
+<pre><code>##                    mean         sd         2.5%          25%           50%
+## r[1]       9.000000e+00  0.0000000   9.00000000   9.00000000  9.000000e+00
+## r[2]       2.300000e+01  0.0000000  23.00000000  23.00000000  2.300000e+01
+## r[3]       1.000000e+01  0.0000000  10.00000000  10.00000000  1.000000e+01
+## r[4]       1.100000e+01  0.0000000  11.00000000  11.00000000  1.100000e+01
+## r[5]       1.200000e+01  0.0000000  12.00000000  12.00000000  1.200000e+01
+## r[6]       2.900000e+01  0.0000000  29.00000000  29.00000000  2.900000e+01
+## r[7]       7.500000e+01  0.0000000  75.00000000  75.00000000  7.500000e+01
+## r[8]       3.630000e+02  0.0000000 363.00000000 363.00000000  3.630000e+02
+## r[9]       2.000000e+00  0.0000000   2.00000000   2.00000000  2.000000e+00
+## r[10]      9.000000e+00  0.0000000   9.00000000   9.00000000  9.000000e+00
+## r[11]      5.800000e+01  0.0000000  58.00000000  58.00000000  5.800000e+01
+## r[12]      2.370000e+02  0.0000000 237.00000000 237.00000000  2.370000e+02
+## r[13]      0.000000e+00  0.0000000   0.00000000   0.00000000  0.000000e+00
+## r[14]      9.000000e+00  0.0000000   9.00000000   9.00000000  9.000000e+00
+## r[15]      3.000000e+00  0.0000000   3.00000000   3.00000000  3.000000e+00
+## r[16]      3.100000e+01  0.0000000  31.00000000  31.00000000  3.100000e+01
+## r[17]      1.000000e+00  0.0000000   1.00000000   1.00000000  1.000000e+00
+## r[18]      2.600000e+01  0.0000000  26.00000000  26.00000000  2.600000e+01
+## r[19]      6.000000e+00  0.0000000   6.00000000   6.00000000  6.000000e+00
+## r[20]      1.700000e+01  0.0000000  17.00000000  17.00000000  1.700000e+01
+## r[21]      7.900000e+01  0.0000000  79.00000000  79.00000000  7.900000e+01
+## r[22]      7.700000e+01  0.0000000  77.00000000  77.00000000  7.700000e+01
+## r[23]      1.800000e+01  0.0000000  18.00000000  18.00000000  1.800000e+01
+## r[24]      2.100000e+01  0.0000000  21.00000000  21.00000000  2.100000e+01
+## r[25]      6.400000e+01  0.0000000  64.00000000  64.00000000  6.400000e+01
+## r[26]      1.070000e+02  0.0000000 107.00000000 107.00000000  1.070000e+02
+## r[27]      5.000000e+00  0.0000000   5.00000000   5.00000000  5.000000e+00
+## r[28]      8.000000e+00  0.0000000   8.00000000   8.00000000  8.000000e+00
+## r[29]      2.000000e+01  0.0000000  20.00000000  20.00000000  2.000000e+01
+## r[30]      3.400000e+01  0.0000000  34.00000000  34.00000000  3.400000e+01
+## r[31]      0.000000e+00  0.0000000   0.00000000   0.00000000  0.000000e+00
+## r[32]      9.000000e+00  0.0000000   9.00000000   9.00000000  9.000000e+00
+## r[33]      8.000000e+00  0.0000000   8.00000000   8.00000000  8.000000e+00
+## r[34]      1.900000e+01  0.0000000  19.00000000  19.00000000  1.900000e+01
+## r[35]      9.500000e+01  0.0000000  95.00000000  95.00000000  9.500000e+01
+## r[36]      1.430000e+02  0.0000000 143.00000000 143.00000000  1.430000e+02
+## r[37]      1.500000e+01  0.0000000  15.00000000  15.00000000  1.500000e+01
+## r[38]      3.600000e+01  0.0000000  36.00000000  36.00000000  3.600000e+01
+## r[39]      7.800000e+01  0.0000000  78.00000000  78.00000000  7.800000e+01
+## r[40]      7.300000e+01  0.0000000  73.00000000  73.00000000  7.300000e+01
+## r[41]      6.900000e+01  0.0000000  69.00000000  69.00000000  6.900000e+01
+## r[42]      5.400000e+01  0.0000000  54.00000000  54.00000000  5.400000e+01
+## r[43]      2.000000e+01  0.0000000  20.00000000  20.00000000  2.000000e+01
+## r[44]      1.600000e+01  0.0000000  16.00000000  16.00000000  1.600000e+01
+## r[45]      7.000000e+00  0.0000000   7.00000000   7.00000000  7.000000e+00
+## r[46]      3.200000e+01  0.0000000  32.00000000  32.00000000  3.200000e+01
+## r[47]      1.200000e+01  0.0000000  12.00000000  12.00000000  1.200000e+01
+## r[48]      2.000000e+01  0.0000000  20.00000000  20.00000000  2.000000e+01
+## r[49]      9.000000e+00  0.0000000   9.00000000   9.00000000  9.000000e+00
+## r[50]      3.000000e+00  0.0000000   3.00000000   3.00000000  3.000000e+00
+## delta[1]  -1.432810e-03  0.8473569  -1.69798439  -0.53610445 -7.418314e-04
+## delta[2]   1.128518e+00  0.3679055   0.42618598   0.88182471  1.123899e+00
+## delta[3]   3.474130e-01  0.4106601  -0.47340808   0.07352396  3.524958e-01
+## delta[4]   2.366182e-03  0.8443120  -1.68299918  -0.53372598  2.300597e-03
+## delta[5]   1.178943e-01  0.4048920  -0.68641137  -0.15162672  1.197328e-01
+## delta[6]   3.440078e-01  0.3621673  -0.35243171   0.09715073  3.393543e-01
+## delta[7]   6.067045e-03  0.8420340  -1.66770246  -0.53499401  5.986977e-03
+## delta[8]   2.164352e+00  0.1424803   1.88628321   2.06837472  2.163430e+00
+## delta[9]  -2.063610e-03  0.8336104  -1.67322950  -0.53122054  2.145502e-03
+## delta[10]  9.064715e-01  0.5870558  -0.18703066   0.50062007  8.842046e-01
+## delta[11]  3.638669e-03  0.8454719  -1.68581220  -0.53195685  3.782033e-03
+## delta[12]  4.407999e-01  0.1540789   0.14480132   0.33591971  4.392690e-01
+## delta[13]  1.103671e-03  0.8342883  -1.63641596  -0.53381212  1.625577e-03
+## delta[14]  1.699695e+00  0.6993807   0.46130708   1.20979934  1.648829e+00
+## delta[15]  8.106886e-03  0.8408172  -1.68811692  -0.52062075  8.372955e-03
+## delta[16]  2.114297e+00  0.4833195   1.23384636   1.78230333  2.092700e+00
+## delta[17] -1.045497e-04  0.8416648  -1.66734987  -0.53213717  2.055405e-03
+## delta[18]  1.615414e+00  0.6084996   0.52931792   1.18713432  1.574289e+00
+## delta[19] -1.304061e-03  0.8459877  -1.69692498  -0.54156995  3.378902e-03
+## delta[20]  5.941751e-01  0.4578211  -0.28034366   0.28670990  5.846914e-01
+## delta[21]  1.233953e-03  0.8453502  -1.67141486  -0.54106692  1.109461e-03
+## delta[22]  9.727916e-03  0.1657574  -0.31711304  -0.10215702  9.985481e-03
+## delta[23]  4.224908e-03  0.8397779  -1.66222257  -0.53848178 -8.982747e-04
+## delta[24]  4.249623e-01  0.3094200  -0.18427610   0.21676830  4.293653e-01
+## delta[25] -4.683410e-03  0.8499668  -1.69807494  -0.54061197 -2.974305e-03
+## delta[26]  4.134869e-01  0.1659684   0.08945020   0.30107461  4.125044e-01
+## delta[27] -3.080954e-03  0.8418631  -1.67767113  -0.54096240  6.205953e-04
+## delta[28]  3.849539e-01  0.5066559  -0.61852866   0.04783496  3.869526e-01
+## delta[29] -5.010165e-03  0.8429441  -1.67533918  -0.54091073 -1.068679e-03
+## delta[30]  6.274726e-01  0.2811102   0.08521052   0.43566730  6.265821e-01
+## delta[31]  7.266504e-03  0.8457342  -1.67776920  -0.53082638  9.046526e-03
+## delta[32]  2.159116e+00  0.7670861   0.83376490   1.63022308  2.100060e+00
+## delta[33] -1.339702e-03  0.8431475  -1.69858787  -0.53531592  1.984652e-03
+## delta[34]  6.723436e-01  0.3981375  -0.08841820   0.40105018  6.653546e-01
+## delta[35]  5.843397e-04  0.8423917  -1.69679813  -0.52824744  3.655023e-03
+## delta[36]  5.527834e-01  0.1382138   0.28473588   0.45992018  5.519591e-01
+## delta[37]  5.229011e-03  0.8412776  -1.68093975  -0.52955089  3.924993e-03
+## delta[38]  2.881455e-02  0.3059255  -0.55830799  -0.17968837  2.418059e-02
+## delta[39] -3.976643e-03  0.8447332  -1.70375487  -0.54019856  2.933852e-03
+## delta[40] -1.908200e-01  0.1728178  -0.52882722  -0.30855834 -1.908665e-01
+## delta[41]  1.769130e-03  0.8460141  -1.69322141  -0.53713728  2.146733e-03
+## delta[42]  8.209754e-02  0.1866330  -0.28654970  -0.04269776  8.158770e-02
+## delta[43] -4.425632e-03  0.8346336  -1.67639242  -0.53165187 -4.744343e-03
+## delta[44] -5.085910e-02  0.3868335  -0.82146652  -0.30825894 -4.829530e-02
+## delta[45]  4.153745e-03  0.8428027  -1.66695808  -0.53539031  1.424105e-03
+## delta[46]  9.649755e-01  0.4154029   0.19149280   0.68054922  9.493326e-01
+## delta[47] -8.976668e-04  0.8387948  -1.67119163  -0.53678702  7.828559e-04
+## delta[48]  6.201196e-01  0.3810755  -0.11425251   0.36215000  6.148599e-01
+## delta[49]  2.018180e-03  0.8368311  -1.64794144  -0.53890656  3.220157e-03
+## delta[50] -1.034292e-01  0.5717642  -1.28921065  -0.47539945 -8.275365e-02
+## tau        1.701789e+00  0.7382885   0.64138930   1.16477160  1.575969e+00
+## deviance   2.817094e+02 10.1118080 263.54863912 274.58900958  2.811032e+02
+##                    75%       97.5%      Rhat n.eff overlap0         f
+## r[1]        9.00000000   9.0000000        NA     1        0 1.0000000
+## r[2]       23.00000000  23.0000000        NA     1        0 1.0000000
+## r[3]       10.00000000  10.0000000        NA     1        0 1.0000000
+## r[4]       11.00000000  11.0000000        NA     1        0 1.0000000
+## r[5]       12.00000000  12.0000000        NA     1        0 1.0000000
+## r[6]       29.00000000  29.0000000        NA     1        0 1.0000000
+## r[7]       75.00000000  75.0000000        NA     1        0 1.0000000
+## r[8]      363.00000000 363.0000000        NA     1        0 1.0000000
+## r[9]        2.00000000   2.0000000        NA     1        0 1.0000000
+## r[10]       9.00000000   9.0000000        NA     1        0 1.0000000
+## r[11]      58.00000000  58.0000000        NA     1        0 1.0000000
+## r[12]     237.00000000 237.0000000        NA     1        0 1.0000000
+## r[13]       0.00000000   0.0000000        NA     1        1 1.0000000
+## r[14]       9.00000000   9.0000000        NA     1        0 1.0000000
+## r[15]       3.00000000   3.0000000        NA     1        0 1.0000000
+## r[16]      31.00000000  31.0000000        NA     1        0 1.0000000
+## r[17]       1.00000000   1.0000000        NA     1        0 1.0000000
+## r[18]      26.00000000  26.0000000        NA     1        0 1.0000000
+## r[19]       6.00000000   6.0000000        NA     1        0 1.0000000
+## r[20]      17.00000000  17.0000000        NA     1        0 1.0000000
+## r[21]      79.00000000  79.0000000        NA     1        0 1.0000000
+## r[22]      77.00000000  77.0000000        NA     1        0 1.0000000
+## r[23]      18.00000000  18.0000000        NA     1        0 1.0000000
+## r[24]      21.00000000  21.0000000        NA     1        0 1.0000000
+## r[25]      64.00000000  64.0000000        NA     1        0 1.0000000
+## r[26]     107.00000000 107.0000000        NA     1        0 1.0000000
+## r[27]       5.00000000   5.0000000        NA     1        0 1.0000000
+## r[28]       8.00000000   8.0000000        NA     1        0 1.0000000
+## r[29]      20.00000000  20.0000000        NA     1        0 1.0000000
+## r[30]      34.00000000  34.0000000        NA     1        0 1.0000000
+## r[31]       0.00000000   0.0000000        NA     1        1 1.0000000
+## r[32]       9.00000000   9.0000000        NA     1        0 1.0000000
+## r[33]       8.00000000   8.0000000        NA     1        0 1.0000000
+## r[34]      19.00000000  19.0000000        NA     1        0 1.0000000
+## r[35]      95.00000000  95.0000000        NA     1        0 1.0000000
+## r[36]     143.00000000 143.0000000        NA     1        0 1.0000000
+## r[37]      15.00000000  15.0000000        NA     1        0 1.0000000
+## r[38]      36.00000000  36.0000000        NA     1        0 1.0000000
+## r[39]      78.00000000  78.0000000        NA     1        0 1.0000000
+## r[40]      73.00000000  73.0000000        NA     1        0 1.0000000
+## r[41]      69.00000000  69.0000000        NA     1        0 1.0000000
+## r[42]      54.00000000  54.0000000        NA     1        0 1.0000000
+## r[43]      20.00000000  20.0000000        NA     1        0 1.0000000
+## r[44]      16.00000000  16.0000000        NA     1        0 1.0000000
+## r[45]       7.00000000   7.0000000        NA     1        0 1.0000000
+## r[46]      32.00000000  32.0000000        NA     1        0 1.0000000
+## r[47]      12.00000000  12.0000000        NA     1        0 1.0000000
+## r[48]      20.00000000  20.0000000        NA     1        0 1.0000000
+## r[49]       9.00000000   9.0000000        NA     1        0 1.0000000
+## r[50]       3.00000000   3.0000000        NA     1        0 1.0000000
+## delta[1]    0.53787172   1.6693772 1.0000522 30000        1 0.5003333
+## delta[2]    1.36803816   1.8722625 1.0003256 26856        0 0.9990667
+## delta[3]    0.62460610   1.1439806 1.0007908  2098        1 0.8038000
+## delta[4]    0.53669511   1.6851102 0.9999983 30000        1 0.5013667
+## delta[5]    0.38935799   0.9057845 1.0002639  5282        1 0.6185000
+## delta[6]    0.58408258   1.0648233 1.0009750  3174        1 0.8281000
+## delta[7]    0.54057899   1.6878055 1.0000062 30000        1 0.5030333
+## delta[8]    2.25927307   2.4450718 1.0011006  1395        0 1.0000000
+## delta[9]    0.52597762   1.6514504 1.0001760  7233        1 0.4989000
+## delta[10]   1.28537105   2.1278557 1.0018218  1466        1 0.9470667
+## delta[11]   0.52862312   1.6956953 1.0001906  8559        1 0.5018667
+## delta[12]   0.54273629   0.7503783 1.0001993  7528        0 0.9983667
+## delta[13]   0.52319150   1.6756967 1.0001366 12117        1 0.5008000
+## delta[14]   2.13619779   3.2210678 1.0008559  1976        0 0.9974333
+## delta[15]   0.54137694   1.6843915 0.9999725 30000        1 0.5044667
+## delta[16]   2.42082115   3.1392164 1.0009205  2783        0 1.0000000
+## delta[17]   0.52449510   1.6942271 1.0000501 18014        1 0.4991333
+## delta[18]   1.99803910   2.9262769 1.0004614 30000        0 0.9987333
+## delta[19]   0.53852338   1.6680841 1.0000385 30000        1 0.4983333
+## delta[20]   0.89567550   1.5189571 1.0002032 13992        1 0.9072333
+## delta[21]   0.54228720   1.6797647 1.0000133 30000        1 0.5005667
+## delta[22]   0.12116196   0.3335639 1.0002888  5276        1 0.5230000
+## delta[23]   0.53554316   1.6908724 1.0000765 13763        1 0.4996000
+## delta[24]   0.63594679   1.0229339 1.0074319   238        1 0.9144667
+## delta[25]   0.53436624   1.6811935 1.0000906 13360        1 0.5013333
+## delta[26]   0.52527536   0.7432919 0.9999856 30000        0 0.9940333
+## delta[27]   0.53314607   1.6733813 1.0000461 30000        1 0.4997000
+## delta[28]   0.71976932   1.3840695 1.0002566 24009        1 0.7789333
+## delta[29]   0.52862028   1.6697599 0.9999788 30000        1 0.5004333
+## delta[30]   0.81647458   1.1877437 1.0001068 11072        0 0.9892333
+## delta[31]   0.54873896   1.6814184 1.0005482 30000        1 0.5052333
+## delta[32]   2.61589698   3.8577330 1.0012005  3834        0 0.9996000
+## delta[33]   0.53193588   1.6563239 0.9999990 30000        1 0.4987333
+## delta[34]   0.93416024   1.4817922 1.0017783 14549        1 0.9580333
+## delta[35]   0.53799171   1.6694576 0.9999983 30000        1 0.5025000
+## delta[36]   0.64643055   0.8233662 1.0014974  1207        0 0.9999667
+## delta[37]   0.53649352   1.6741907 1.0000276 30000        1 0.5018000
+## delta[38]   0.23230917   0.6386161 1.0001184 10463        1 0.5326333
+## delta[39]   0.52919779   1.6834011 1.0000519 30000        1 0.4989333
+## delta[40]  -0.07378617   0.1488476 1.0002579 30000        1 0.8653333
+## delta[41]   0.53635145   1.6804523 1.0002318  5882        1 0.5010667
+## delta[42]   0.20757217   0.4513086 1.0004857 30000        1 0.6711667
+## delta[43]   0.52608829   1.6559492 1.0001705  7818        1 0.5029667
+## delta[44]   0.20773665   0.7024137 1.0001794 30000        1 0.5495333
+## delta[45]   0.54069363   1.6849918 0.9999782 30000        1 0.5005000
+## delta[46]   1.23253743   1.8190170 1.0000386 21424        0 0.9941333
+## delta[47]   0.52892936   1.6585920 1.0000258 30000        1 0.4996333
+## delta[48]   0.87018793   1.3767171 1.0018203   854        1 0.9501667
+## delta[49]   0.53494661   1.6595144 1.0000060 30000        1 0.5010000
+## delta[50]   0.29172685   0.9679029 1.0002152  7794        1 0.5580000
+## tau         2.09960866   3.4647741 1.0000553 30000        0 1.0000000
+## deviance  288.21436462 303.1143554 1.0005141  4335        0 1.0000000</code></pre>
+<pre class="r"><code># plot(results)</code></pre>
 </div>
 <div id="mtc_re_ceac" class="section level1">
 <h1><code>mtc_re_ceac</code></h1>
@@ -674,6 +1052,9 @@ plot(results)</code></pre>
           3=individual counselling
           4=group counselling
 ==================================</code></pre>
+<p><font color="#008800"> The rank function call here is complicated
+because it is doubly nested. These results need to be checked against
+WinBUGS with particular care, in case I did this wrong. </font></p>
 <pre class="r"><code># Model
 
 model_code &lt;- &quot;model{
@@ -707,17 +1088,19 @@ model_code &lt;- &quot;model{
 
 
   # Absolute treatment effects  
-  precA &lt;- pow(.38,-2)                                                     # prior precision for Treatment A, sd=.38 
-  A ~ dnorm(-2.6,precA)                                                  # external info on A. 
-  for (k in 1:4) { logit(T[k]) &lt;- A + d[k] }                               # absolute effects T[k] for each treatment
+  precA &lt;- pow(.38,-2)                                         # prior precision for Treatment A, sd=.38 
+  A ~ dnorm(-2.6,precA)                                        # external info on A. 
+  for (k in 1:4) { logit(T[k]) &lt;- A + d[k] }                    # absolute effects T[k] for each treatment
   
-  #Rank the treatment effects (with 1=best) &amp; record the best treatment
-  for(k in 1:4){
-    rk[k]&lt;- 5 - rank(T[],k)
-    best[k]&lt;-equals(rk[k],1)
+  # Rank the treatment effects (with 1=best) &amp; record the best treatment
+  rank_T_results &lt;- rank(T[]) # !!! call rank function outside of loop
+  for (k in 1:4){
+    # !!! rk[k]&lt;- 5 - rank(T[],k)
+    rk[k] &lt;- 5 - rank_T_results[k]
+    best[k] &lt;- equals(rk[k],1)
   }
   
-  #All pairwise log odds ratios and odds ratios
+  # All pairwise log odds ratios and odds ratios
   for (c in 1:3){
     for (k in (c+1):4){
         lor[c,k] &lt;- d[k] - d[c]
@@ -733,11 +1116,28 @@ model_code &lt;- &quot;model{
   cost[3]&lt;-6000
   cost[4]&lt;-600
   
+  # !!! As above, the call to `rank` needs to be moved out of the inner loop, then we index into the result.
+  # !!! Here it is more complicated because it needs to be done inside a nested loop.
+  # !!! I broke it into two passes: first compute nb, then go back and handle the rank calls to compute p.ce.
+  
+  # for (w in 1:50){
+  #     for (k in 1:4){
+  #         nb[k,w] &lt;- T[k]*lyg*w*1000 - cost[k]
+  #         p.ce[k,w] &lt;- equals(rank(nb[,w],k),4)
+  #     }   
+  # }
+  
   for (w in 1:50){
     for (k in 1:4){
-        nb[k,w]&lt;- T[k]*lyg*w*1000 - cost[k]
-        p.ce[k,w]&lt;-equals(rank(nb[,w],k),4)
-    }   
+        nb[k,w] &lt;- T[k]*lyg*w*1000 - cost[k]
+    }
+  }
+  
+  for (w in 1:50){
+    rank_w_results[1:4,w] &lt;- rank(nb[,w])
+    for (k in 1:4){
+        p.ce[k,w] &lt;- equals(rank_w_results[k,w],4)
+    }
   }
 
 }
@@ -828,45 +1228,87 @@ results &lt;- jags(data = data,
             n.adapt = 100,
             n.iter = 50000,
             n.burnin = 20000,
-            n.thin = 2)
-
-summary(results)
-
-plot(results)</code></pre>
+            n.thin = 2)</code></pre>
+<pre><code>## 
+## Processing function input....... 
+## 
+## Done. 
+##  
+## Compiling model graph
+##    Resolving undeclared variables
+##    Allocating nodes
+## Graph information:
+##    Observed stochastic nodes: 50
+##    Unobserved stochastic nodes: 80
+##    Total graph size: 2124
+## 
+## Initializing model
+## 
+## Adaptive phase, 100 iterations x 2 chains 
+## If no progress bar appears JAGS has decided not to adapt 
+##  
+## 
+##  Burn-in phase, 20000 iterations x 2 chains 
+##  
+## 
+## Sampling from joint posterior, 30000 iterations x 2 chains 
+##  
+## 
+## Calculating statistics....... 
+## 
+## Done.</code></pre>
+<pre class="r"><code>summary(results)</code></pre>
+<pre><code>##              mean       sd      2.5%       25%       50%       75%     97.5%
+## cost[1]     0.000  0.00000    0.0000    0.0000    0.0000    0.0000    0.0000
+## cost[2]   200.000  0.00000  200.0000  200.0000  200.0000  200.0000  200.0000
+## cost[3]  6000.000  0.00000 6000.0000 6000.0000 6000.0000 6000.0000 6000.0000
+## cost[4]   600.000  0.00000  600.0000  600.0000  600.0000  600.0000  600.0000
+## deviance  281.736 10.10284  263.7564  274.5988  281.0921  288.1744  303.2682
+##              Rhat n.eff overlap0 f
+## cost[1]        NA     1        1 1
+## cost[2]        NA     1        0 1
+## cost[3]        NA     1        0 1
+## cost[4]        NA     1        0 1
+## deviance 1.000178  8784        0 1</code></pre>
+<pre class="r"><code># plot(results)</code></pre>
 </div>
 <div id="mtc_re_multiarm" class="section level1">
 <h1>mtc_re_multiarm</h1>
 <p>Random effects model for multi-arm trials (any number of arms).</p>
-<p>&lt;font color=“f00”? NOTE: This example does not use the rank
-function, but it does have multi-dimensional data that I am not sure how
-to import </font></p>
+<p>&lt;font color=“#008800”? NOTE: This example has 3-dimensional data
+consisting of three matrixes (‘r’, ‘n’, and ‘t’) and a vector ‘na’; I
+re-format them into a list of smaller data structures. </font></p>
 <pre class="r"><code>model_code &lt;- &quot;
 model{
-for(i in 1:NS){ 
-         w[i,1] &lt;-0
-         delta[i,t[i,1]]&lt;-0
-         mu[i] ~ dnorm(0,.0001)                                                   # vague priors for 24 trial baselines
-         for (k in 1:na[i])  { 
-                r[i,k] ~ dbin(p[i,t[i,k]],n[i,k])                                                     # binomial likelihood
-              logit(p[i,t[i,k]])&lt;-mu[i] + delta[i,t[i,k]] }                                                                    # model
-         for (k in 2:na[i]) {
-                 delta[i,t[i,k]] ~ dnorm(md[i,t[i,k]],taud[i,t[i,k]])             # trial-specific LOR distributions
-                 md[i,t[i,k]] &lt;-  d[t[i,k]] - d[t[i,1]]  + sw[i,k]                   # mean of LOR distributions
-                  taud[i,t[i,k]] &lt;- tau *2*(k-1)/k                                    #precision of LOR distributions
-                  w[i,k] &lt;- (delta[i,t[i,k]]  - d[t[i,k]] + d[t[i,1]])           #adjustment, multi-arm RCTs
-                  sw[i,k] &lt;-sum(w[i,1:k-1])/(k-1) }                 # cumulative adjustment for multi-arm trials
-  }   
-
-d[1]&lt;-0
-for (k in 2:NT){d[k] ~ dnorm(0,.0001) }                       #  vague priors for basic parameters
-
-sd~dunif(0,2)                                            #  vague prior for random effects standard deviation 
-tau&lt;-1/pow(sd,2)
-    
+  for(i in 1:NS){ 
+    w[i,1] &lt;- 0
+    delta[i,t[i,1]]&lt;-0
+    mu[i] ~ dnorm(0,.0001)                                    # vague priors for 24 trial baselines
+    for (k in 1:na[i])  { 
+      r[i,k] ~ dbin(p[i, t[i,k]], n[i,k])                     # binomial likelihood
+      logit(p[i, t[i,k]])&lt;-mu[i] + delta[i,t[i,k]] 
+    }                                                         # model
+    for (k in 2:na[i]) {
+      delta[i,t[i,k]] ~ dnorm(md[i, t[i,k]], taud[i,t[i,k]])  # trial-specific LOR distributions
+      md[i,t[i,k]] &lt;-  d[t[i,k]] - d[t[i,1]]  + sw[i,k]       # mean of LOR distributions
+      taud[i,t[i,k]] &lt;- tau *2*(k-1)/k                        # precision of LOR distributions
+      w[i,k] &lt;- (delta[i,t[i,k]]  - d[t[i,k]] + d[t[i,1]])    # adjustment, multi-arm RCTs
+      sw[i,k] &lt;- sum(w[i,1:(k-1)])/(k-1)                      # cumulative adjustment for multi-arm trials 
+            # !!! added parentheses around k-1 in 1:(k-1)
+    }
+  }
+  
+  d[1] &lt;- 0
+  for (k in 2:NT){ d[k] ~ dnorm(0,.0001) }            #  vague priors for basic parameters
+  
+  sd ~ dunif(0,2)                                     #  vague prior for random effects standard deviation 
+  tau &lt;- 1 / pow(sd,2)
 }
 &quot; %&gt;% textConnection
 
-data &lt;- &quot;r[,1]  n[,1]   r[,2]   n[,2]   r[,3]   n[,3]   t[,1]  t[,2] t[,3]   na[]   
+# &quot;r[,1]  n[,1] r[,2]   n[,2]   r[,3]   n[,3]   t[,1]  t[,2] t[,3]   na[]
+
+data_df &lt;- &quot;r1  n1  r2  n2  r3  n3  t1  t2 t3   na   
   9   140     23      140    10 138  1      3     4      3
  11    78    12     85     29    170    2      3     4      3
  75  731    363  714       NA     1  1      3   NA     2 
@@ -890,9 +1332,18 @@ data &lt;- &quot;r[,1]  n[,1]   r[,2]   n[,2]   r[,3]   n[,3]   t[,1]  t[,2] t[,
 20      49   16   43        NA      1    2     3   NA      2
   7     66    32   127      NA      1    2     4   NA      2
 12    76       20     74        NA      1    3     4   NA      2
-  9    55       3      26     NA       1     3     4   NA     2&quot;
+  9    55       3      26     NA       1     3     4   NA     2&quot; %&gt;% read.table(text=., header=TRUE)
 
-more_data &lt;- list(NT=4, NS=24)
+# more_data &lt;- list(NT=4, NS=24)
+
+data &lt;- with(data_df, list(
+  r = cbind(r1, r2, r3),
+  n = cbind(n1, n2, n3),
+  t = cbind(t1, t2, t3),
+  na = na,
+  NT=4, 
+  NS=24
+))
 
 initial &lt;- list(
   list(
@@ -906,10 +1357,159 @@ initial &lt;- list(
     sd=.2,
     mu=c(1,-1,-2,0,0,    -2,1,0,2,2,    1,-1,-2,0,0,   -2,1,0,2,2,   -2,-0.5,-3,0.5)
   )
+  
+)
 
-  
-  
-)</code></pre>
+
+parameters_to_save &lt;- c(&quot;tau&quot;, &quot;sd&quot;, &quot;delta&quot;) # What else?
+
+
+results &lt;- jags(data = data,
+            inits = initial_values,
+            parameters.to.save = parameters_to_save,
+            model.file = model_code,
+            n.chains = length(initial_values),
+            n.adapt = 100,
+            n.iter = 50000,
+            n.burnin = 20000,
+            n.thin = 2)</code></pre>
+<pre><code>## 
+## Processing function input....... 
+## 
+## Done. 
+##  
+## Compiling model graph
+##    Resolving undeclared variables
+##    Allocating nodes
+## Graph information:
+##    Observed stochastic nodes: 50
+##    Unobserved stochastic nodes: 54
+##    Total graph size: 439
+## 
+## Initializing model
+## 
+## Adaptive phase, 100 iterations x 2 chains 
+## If no progress bar appears JAGS has decided not to adapt 
+##  
+## 
+##  Burn-in phase, 20000 iterations x 2 chains 
+##  
+## 
+## Sampling from joint posterior, 30000 iterations x 2 chains 
+##  
+## 
+## Calculating statistics....... 
+## 
+## Done.</code></pre>
+<pre class="r"><code>summary(results)</code></pre>
+<pre><code>##                      mean         sd         2.5%          25%           50%
+## tau           1.626935958  0.7095392   0.62011950   1.11934667   1.504295488
+## sd            0.839598581  0.1854507   0.54753959   0.70806362   0.815330004
+## delta[1,1]    0.000000000  0.0000000   0.00000000   0.00000000   0.000000000
+## delta[3,1]    0.000000000  0.0000000   0.00000000   0.00000000   0.000000000
+## delta[4,1]    0.000000000  0.0000000   0.00000000   0.00000000   0.000000000
+## delta[5,1]    0.000000000  0.0000000   0.00000000   0.00000000   0.000000000
+## delta[6,1]    0.000000000  0.0000000   0.00000000   0.00000000   0.000000000
+## delta[7,1]    0.000000000  0.0000000   0.00000000   0.00000000   0.000000000
+## delta[8,1]    0.000000000  0.0000000   0.00000000   0.00000000   0.000000000
+## delta[9,1]    0.000000000  0.0000000   0.00000000   0.00000000   0.000000000
+## delta[10,1]   0.000000000  0.0000000   0.00000000   0.00000000   0.000000000
+## delta[11,1]   0.000000000  0.0000000   0.00000000   0.00000000   0.000000000
+## delta[12,1]   0.000000000  0.0000000   0.00000000   0.00000000   0.000000000
+## delta[13,1]   0.000000000  0.0000000   0.00000000   0.00000000   0.000000000
+## delta[14,1]   0.000000000  0.0000000   0.00000000   0.00000000   0.000000000
+## delta[15,1]   0.000000000  0.0000000   0.00000000   0.00000000   0.000000000
+## delta[16,1]   0.000000000  0.0000000   0.00000000   0.00000000   0.000000000
+## delta[17,1]   0.000000000  0.0000000   0.00000000   0.00000000   0.000000000
+## delta[18,1]   0.000000000  0.0000000   0.00000000   0.00000000   0.000000000
+## delta[19,1]   0.000000000  0.0000000   0.00000000   0.00000000   0.000000000
+## delta[20,1]   0.000000000  0.0000000   0.00000000   0.00000000   0.000000000
+## delta[2,2]    0.000000000  0.0000000   0.00000000   0.00000000   0.000000000
+## delta[10,2]   0.006163707  0.1685993  -0.32882841  -0.10637108   0.006918271
+## delta[11,2]   0.407550036  0.3105420  -0.19715447   0.20045311   0.407378877
+## delta[16,2]   0.656804714  0.3968302  -0.10535690   0.38800117   0.649911767
+## delta[21,2]   0.000000000  0.0000000   0.00000000   0.00000000   0.000000000
+## delta[22,2]   0.000000000  0.0000000   0.00000000   0.00000000   0.000000000
+## delta[1,3]    1.063613457  0.3803634   0.32906036   0.80797153   1.059421827
+## delta[2,3]    0.080938237  0.4136092  -0.73685299  -0.18932967   0.081281018
+## delta[3,3]    2.162798500  0.1389985   1.89616643   2.06884609   2.161338364
+## delta[4,3]    0.931003545  0.5902079  -0.17136145   0.52617868   0.910495922
+## delta[5,3]    0.435846122  0.1527682   0.13787161   0.33175441   0.434407541
+## delta[6,3]    1.717284969  0.7193735   0.45765259   1.22174967   1.656432003
+## delta[7,3]    2.142185744  0.4822632   1.27899942   1.80541041   2.116714400
+## delta[8,3]    1.640864429  0.6097613   0.54633451   1.22021015   1.607931499
+## delta[9,3]    0.585770375  0.4510143  -0.28381920   0.28033507   0.580735923
+## delta[12,3]   0.409869709  0.1652520   0.08441903   0.29790144   0.409054449
+## delta[13,3]   0.397528101  0.5091647  -0.59275018   0.05935308   0.389962771
+## delta[14,3]   0.620983911  0.2827287   0.07175348   0.43044152   0.618119399
+## delta[17,3]   0.550699637  0.1379663   0.28155020   0.45746139   0.549431568
+## delta[18,3]   0.030408797  0.3089172  -0.56691216  -0.18129283   0.026279929
+## delta[19,3]  -0.190033175  0.1704099  -0.52336917  -0.30558652  -0.190402629
+## delta[20,3]   0.077221730  0.1834937  -0.28435450  -0.04539561   0.077785887
+## delta[21,3]  -0.035529740  0.3882896  -0.79989657  -0.29622104  -0.038962115
+## delta[23,3]   0.000000000  0.0000000   0.00000000   0.00000000   0.000000000
+## delta[24,3]   0.000000000  0.0000000   0.00000000   0.00000000   0.000000000
+## delta[1,4]    0.366860953  0.4253763  -0.48488948   0.08630834   0.369088573
+## delta[2,4]    0.314239956  0.3638253  -0.39548032   0.06735296   0.313204151
+## delta[15,4]   2.154679881  0.7760967   0.79615190   1.61893483   2.096296459
+## delta[22,4]   0.969481918  0.4054793   0.20621137   0.69307212   0.956106742
+## delta[23,4]   0.601063976  0.3716680  -0.11576076   0.34888790   0.595616348
+## delta[24,4]  -0.153656084  0.5642579  -1.31640092  -0.52188820  -0.134460432
+## deviance    281.559238738 10.1342395 263.40118707 274.42154640 280.971213085
+##                     75%       97.5%      Rhat n.eff overlap0         f
+## tau           1.9945983   3.3355615 1.0002213 18728        0 1.0000000
+## sd            0.9451869   1.2698789 1.0003144  7023        0 1.0000000
+## delta[1,1]    0.0000000   0.0000000        NA     1        1 1.0000000
+## delta[3,1]    0.0000000   0.0000000        NA     1        1 1.0000000
+## delta[4,1]    0.0000000   0.0000000        NA     1        1 1.0000000
+## delta[5,1]    0.0000000   0.0000000        NA     1        1 1.0000000
+## delta[6,1]    0.0000000   0.0000000        NA     1        1 1.0000000
+## delta[7,1]    0.0000000   0.0000000        NA     1        1 1.0000000
+## delta[8,1]    0.0000000   0.0000000        NA     1        1 1.0000000
+## delta[9,1]    0.0000000   0.0000000        NA     1        1 1.0000000
+## delta[10,1]   0.0000000   0.0000000        NA     1        1 1.0000000
+## delta[11,1]   0.0000000   0.0000000        NA     1        1 1.0000000
+## delta[12,1]   0.0000000   0.0000000        NA     1        1 1.0000000
+## delta[13,1]   0.0000000   0.0000000        NA     1        1 1.0000000
+## delta[14,1]   0.0000000   0.0000000        NA     1        1 1.0000000
+## delta[15,1]   0.0000000   0.0000000        NA     1        1 1.0000000
+## delta[16,1]   0.0000000   0.0000000        NA     1        1 1.0000000
+## delta[17,1]   0.0000000   0.0000000        NA     1        1 1.0000000
+## delta[18,1]   0.0000000   0.0000000        NA     1        1 1.0000000
+## delta[19,1]   0.0000000   0.0000000        NA     1        1 1.0000000
+## delta[20,1]   0.0000000   0.0000000        NA     1        1 1.0000000
+## delta[2,2]    0.0000000   0.0000000        NA     1        1 1.0000000
+## delta[10,2]   0.1203983   0.3346416 0.9999816 30000        1 0.5153000
+## delta[11,2]   0.6146933   1.0182438 1.0000512 30000        1 0.9056333
+## delta[16,2]   0.9196840   1.4531287 1.0000660 26354        1 0.9541333
+## delta[21,2]   0.0000000   0.0000000        NA     1        1 1.0000000
+## delta[22,2]   0.0000000   0.0000000        NA     1        1 1.0000000
+## delta[1,3]    1.3173863   1.8221320 1.0091234   178        0 0.9983000
+## delta[2,3]    0.3582504   0.8838209 1.0121635   131        1 0.5795333
+## delta[3,3]    2.2543944   2.4418625 1.0008439  2371        0 1.0000000
+## delta[4,3]    1.3094178   2.1448375 1.0001062 13374        1 0.9498333
+## delta[5,3]    0.5376365   0.7393733 1.0000290 30000        0 0.9983333
+## delta[6,3]    2.1523328   3.2956536 1.0004299 10726        0 0.9978333
+## delta[7,3]    2.4501529   3.1588309 1.0000664 17382        0 1.0000000
+## delta[8,3]    2.0217378   2.9417690 1.0002475  5553        0 0.9989333
+## delta[9,3]    0.8826947   1.4879988 1.0000321 23026        1 0.9042667
+## delta[12,3]   0.5216562   0.7330135 1.0001727 30000        0 0.9932000
+## delta[13,3]   0.7270473   1.4188672 1.0004764  3438        1 0.7869000
+## delta[14,3]   0.8108911   1.1800674 1.0005438  4317        0 0.9866667
+## delta[17,3]   0.6449026   0.8203792 1.0001207 25225        0 0.9999667
+## delta[18,3]   0.2359569   0.6459649 1.0001548 27308        1 0.5345333
+## delta[19,3]  -0.0755904   0.1477557 1.0002001  6551        1 0.8664667
+## delta[20,3]   0.1996903   0.4352399 1.0000257 30000        1 0.6658667
+## delta[21,3]   0.2273502   0.7230016 1.0004742  3588        1 0.5409000
+## delta[23,3]   0.0000000   0.0000000        NA     1        1 1.0000000
+## delta[24,3]   0.0000000   0.0000000        NA     1        1 1.0000000
+## delta[1,4]    0.6532382   1.1948800 1.0089793   179        1 0.8086333
+## delta[2,4]    0.5568956   1.0388882 1.0178616    91        1 0.8056667
+## delta[15,4]   2.6270341   3.8487413 1.0002850  4804        0 0.9995333
+## delta[22,4]   1.2299683   1.7972812 1.0006539  2202        0 0.9940000
+## delta[23,4]   0.8505214   1.3360579 1.0000938 29242        1 0.9503333
+## delta[24,4]   0.2298302   0.9039908 1.0010651  1731        1 0.6000000
+## deviance    287.9989688 302.9078465 1.0000173 30000        0 1.0000000</code></pre>
 </div>
 
 

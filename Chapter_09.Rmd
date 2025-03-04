@@ -5,16 +5,19 @@ date: "2025-03-01"
 output: html_document
 ---
 
-<font color="#FF0000">
-None of these examples currently run in JAGS. The first 3 use the `rank` function, which is parameterized differently in JAGS than in WinBUGS. The fourth example has multi-dimensional data that I have not figured out how to import.
+<font color="#008800">
 
-[From Andrew Millard, via the BUGS listserv](https://stackoverflow.com/questions/26370388/use-of-rank-function-in-bugs):
+These results need to be carefully checked against WinBUGS.
 
-"The OpenBugs manual gives the definition as
-`rank(v, s) number of components of v less than or equal to s`
-which is what I had based my code on, but the manual is wrong and it should be
-`rank(v, s) number of components of v less than or equal to the s-th component of v`"
+The first 3 examples use the `rank` function, which is parameterized differently in JAGS than in WinBUGS. See [this stackoverflow post](https://stackoverflow.com/questions/55628471/rank-function-in-jags).
 
+  "The OpenBugs manual gives the definition as
+  `rank(v, s) number of components of v less than or equal to s`
+  which is what I had based my code on, but the manual is wrong and it should be
+  `rank(v, s) number of components of v less than or equal to the s-th component of v`"
+
+
+The fourth example has multi-dimensional data that I reformatted in code.
 </font>
 
 ```{r setup, include=FALSE}
@@ -32,7 +35,6 @@ library('dplyr')
 ```
 
 
-
 # `mtc_fe`
 ```
 Fixed effect model for Hasselblad's data
@@ -47,48 +49,47 @@ Fixed effect model for Hasselblad's data
 ==================================
 ```
 
-```
-Error in rjags::jags.model(file = model.file, data = data, inits = inits,  : 
-  RUNTIME ERROR:
-Incorrect number of parameters in function rank
-```
 
-```{r mtc_fe, eval=FALSE}
-
-
+```{r mtc_fe}
 # Model
 
-model_code <- "model{
+model_code <- "
+model{
 
- for(i in 1:50)  {                                                                 #  loop over 50 observation
-                      r[i] ~ dbin(p[i],n[i])                                       # likelihood
-		              logit(p[i]) <- mu[s[i]]+ d[t[i]] - d[b[i]]                # model
-# Deviance residuals for data i                                                                                       
-                      rhat[i] <- p[i] * n[i]                                       # predicted values and deviance                           
-                      dev[i] <- 2 * (r[i] * (log(r[i])-log(rhat[i]))  +  (n[i]-r[i]) * (log(n[i]-r[i]) - log(n[i]-rhat[i])))    
-	            	}
-sumdev <- sum(dev[])                                                       # summed deviance
+  for(i in 1:50)  {                                           # loop over 50 observation
+    r[i] ~ dbin(p[i],n[i])                                    # likelihood
+    logit(p[i]) <- mu[s[i]]+ d[t[i]] - d[b[i]]                # model
+    # Deviance residuals for data i                                                                                       
+    rhat[i] <- p[i] * n[i]                                    # predicted values and deviance                           
+    dev[i] <- 2 * (r[i] * (log(r[i])-log(rhat[i]))  +  (n[i]-r[i]) * (log(n[i]-r[i]) - log(n[i]-rhat[i])))    
+  }
+  sumdev <- sum(dev[])                                        # summed deviance
 
-for (j in 1:24) { mu[j] ~ dnorm(0,.0001)}                               # vague priors for baselines
+  for (j in 1:24) { mu[j] ~ dnorm(0,.0001)}                   # vague priors for baselines
+  
+  d[1] <- 0                                                   # set effect of A rel to A as 0
+  for (k in 2:4) {d[k] ~ dnorm(0,.001) }                      # flat priors for 3 basic treatment parameters
+  
+  # Absolute treatment effects  
+  precA <- pow(.38,-2)                                        # prior precision for Treatment A, sd=.38 
+  A ~ dnorm(-2.6,precA)                                       # external info on A. 
+  for (k in 1:4) { logit(T[k]) <- A + d[k] }                  # absolute effects T[k] for each treatment
+                     
+  # Rank the treatment effects (with 1=best) & record the best treatment
+  rank_T_results <-  rank(T[]) # !!! Bob
+  for (k in 1:4) { 
+    # rk[k] <- 5 - rank(T[],k)
+    rk[k] <- 5 - rank_T_results[k]
+    best[k] <- equals(rk[k],1)
+  }
 
-d[1] <- 0                                                                         # set effect of A rel to A as 0
-for (k in 2:4) {d[k] ~ dnorm(0,.001) }                                    # flat priors for 3 basic treatment parameters
-
-# Absolute treatment effects  
-precA <- pow(.38,-2)                                                     # prior precision for Treatment A, sd=.38 
-A ~ dnorm(-2.6,precA)                                                  # external info on A. 
-for (k in 1:4) { logit(T[k]) <- A + d[k] }                                # absolute effects T[k] for each treatment
-                   
-#Rank the treatment effects (with 1=best) & record the best treatment
-for (k in 1:4) { rk[k] <- 5 - rank(T[],k)
-                    best[k] <- equals(rk[k],1)}
-
-#All pairwise log odds ratios and odds ratios
-for (c in 1:3) { for (k in (c+1):4) { lor[c,k] <- d[k] - d[c]
-		                                       log(or[c,k]) <- lor[c,k]
-		                                    }
-	              }
-
+  # All pairwise log odds ratios and odds ratios
+  for (c in 1:3) { 
+    for (k in (c+1):4) { 
+      lor[c,k] <- d[k] - d[c]
+      log(or[c,k]) <- lor[c,k]
+    }
+  }
 }
 " %>% textConnection
 
@@ -164,7 +165,7 @@ initial_values <- list(
 )
 
 
-parameters_to_save <- c("e.d") # What else?
+parameters_to_save <- c("r", "delta", "tau") # What else?
 
 
 results <- jags(data = data,
@@ -179,7 +180,7 @@ results <- jags(data = data,
 
 summary(results)
 
-plot(results)
+# plot(results)
 ```
 
 
@@ -198,54 +199,52 @@ Random effect model for Hasselblad's data
 ==================================
 ```
 
-```
-RUNTIME ERROR:
-Incorrect number of parameters in function rank
-```
-
-See [this stackoverflow post](https://stackoverflow.com/questions/55628471/rank-function-in-jags) about the rank function in JAGS.
-
-
-```{r mtc_re, eval=FALSE}
+```{r mtc_re}
 
 
 # Model
 
 model_code <- "model{
 
- for(i in 1:50)  {                                                                           #  loop over 50 observation
-                      r[i] ~ dbin(p[i],n[i])                                                 # likelihood
-		              logit(p[i]) <- mu[s[i]]+ delta[i]*(1-equals(t[i],b[i]))        # model
-                      delta[i] ~ dnorm(md[i],tau)                                     # Draw random effect from distribution
-                      md[i] <- d[t[i]] - d[b[i]]                                           #  Mean of distribution
-# Deviance residuals for data i                                                                                       
-                      rhat[i] <- p[i] * n[i]                                       # predicted values and deviance                           
-                      dev[i] <- 2 * (r[i] * (log(r[i])-log(rhat[i]))  +  (n[i]-r[i]) * (log(n[i]-r[i]) - log(n[i]-rhat[i])))    
-	            	}
-sumdev <- sum(dev[])                                                       # summed deviance
-
-for (j in 1:24) { mu[j] ~ dnorm(0,.0001) }                               # vague priors for baselines
+  for(i in 1:50)  {                                         #  loop over 50 observation
+    r[i] ~ dbin(p[i],n[i])                                  # likelihood
+    logit(p[i]) <- mu[s[i]]+ delta[i]*(1-equals(t[i],b[i])) # model
+    delta[i] ~ dnorm(md[i],tau)                             # Draw random effect from distribution
+    md[i] <- d[t[i]] - d[b[i]]                              #  Mean of distribution
+    # Deviance residuals for data i                                                                                       
+    rhat[i] <- p[i] * n[i]                                  # predicted values and deviance                           
+    dev[i] <- 2 * (r[i] * (log(r[i])-log(rhat[i]))  +  (n[i]-r[i]) * (log(n[i]-r[i]) - log(n[i]-rhat[i])))    
+  }
+  sumdev <- sum(dev[])                                      # summed deviance
+  
+  for (j in 1:24) { mu[j] ~ dnorm(0,.0001) }                # vague priors for baselines
+                       
+  d[1] <- 0                                                 # set effect of A rel to A as 0
+  for (k in 2:4) {d[k] ~ dnorm(0,.001) }                    # flat priors for 3 basic treatment parameters
+  
+  tau <- pow(sd,-2)
+  sd ~ dunif(0,2)
+  
+  # Absolute treatment effects  
+  precA <- pow(.38,-2)                                      # prior precision for Treatment A, sd=.38 
+  A ~ dnorm(-2.6,precA)                                     # external info on A. 
+  for (k in 1:4) { logit(T[k]) <- A + d[k] }                # absolute effects T[k] for each treatment
                      
-d[1] <- 0                                                                         # set effect of A rel to A as 0
-for (k in 2:4) {d[k] ~ dnorm(0,.001) }                                    # flat priors for 3 basic treatment parameters
+  #Rank the treatment effects (with 1=best) & record the best treatment
+  rank_T_results <- rank(T[]) # !!! rank outside loop
+  for (k in 1:4) { 
+    # !!! rk[k] <- 5 - rank(T[],k)
+    rk[k] <- 5 - rank_T_results[k]
+    best[k] <- equals(rk[k],1)
+  }
 
-tau <- pow(sd,-2)
-sd ~ dunif(0,2)
-
-# Absolute treatment effects  
-precA <- pow(.38,-2)                                                     # prior precision for Treatment A, sd=.38 
-A ~ dnorm(-2.6,precA)                                                  # external info on A. 
-for (k in 1:4) { logit(T[k]) <- A + d[k] }                               # absolute effects T[k] for each treatment
-                   
-#Rank the treatment effects (with 1=best) & record the best treatment
-for (k in 1:4) { rk[k] <- 5 - rank(T[],k)
-                    best[k] <- equals(rk[k],1)}
-
-#All pairwise log odds ratios and odds ratios
-for (c in 1:3) { for (k in (c+1):4) { lor[c,k] <- d[k] - d[c]
-		                                       log(or[c,k]) <- lor[c,k]
-		                                    }
-	              }
+  #All pairwise log odds ratios and odds ratios
+  for (c in 1:3) { 
+    for (k in (c+1):4) { 
+      lor[c,k] <- d[k] - d[c]
+      log(or[c,k]) <- lor[c,k]
+    }
+  }
 
 }
 " %>% textConnection
@@ -329,7 +328,7 @@ initial_values <- list(
 )
 
 
-parameters_to_save <- c("e.d") # What else?
+parameters_to_save <- c("r", "delta", "tau") # What else?
 
 
 results <- jags(data = data,
@@ -344,7 +343,7 @@ results <- jags(data = data,
 
 summary(results)
 
-plot(results)
+# plot(results)
 ```
 
 
@@ -362,10 +361,12 @@ Random effects model for Hasselblad's data
           4=group counselling
 ==================================
 ```
+<font color="#008800">
+The rank function call here is complicated because it is doubly nested. These results need to be checked against WinBUGS with particular care, in case I did this wrong.
+</font>
 
 
-
-```{r mtc_re_ceac, eval=FALSE}
+```{r mtc_re_ceac}
 
 
 # Model
@@ -401,17 +402,19 @@ model_code <- "model{
 
 
   # Absolute treatment effects  
-  precA <- pow(.38,-2)                                                     # prior precision for Treatment A, sd=.38 
-  A ~ dnorm(-2.6,precA)                                                  # external info on A. 
-  for (k in 1:4) { logit(T[k]) <- A + d[k] }                               # absolute effects T[k] for each treatment
+  precA <- pow(.38,-2)                                         # prior precision for Treatment A, sd=.38 
+  A ~ dnorm(-2.6,precA)                                        # external info on A. 
+  for (k in 1:4) { logit(T[k]) <- A + d[k] }                    # absolute effects T[k] for each treatment
   
-  #Rank the treatment effects (with 1=best) & record the best treatment
-  for(k in 1:4){
-    rk[k]<- 5 - rank(T[],k)
-    best[k]<-equals(rk[k],1)
+  # Rank the treatment effects (with 1=best) & record the best treatment
+  rank_T_results <- rank(T[]) # !!! call rank function outside of loop
+  for (k in 1:4){
+    # !!! rk[k]<- 5 - rank(T[],k)
+    rk[k] <- 5 - rank_T_results[k]
+    best[k] <- equals(rk[k],1)
   }
   
-  #All pairwise log odds ratios and odds ratios
+  # All pairwise log odds ratios and odds ratios
   for (c in 1:3){
   	for (k in (c+1):4){
   		lor[c,k] <- d[k] - d[c]
@@ -427,11 +430,28 @@ model_code <- "model{
   cost[3]<-6000
   cost[4]<-600
   
+  # !!! As above, the call to `rank` needs to be moved out of the inner loop, then we index into the result.
+  # !!! Here it is more complicated because it needs to be done inside a nested loop.
+  # !!! I broke it into two passes: first compute nb, then go back and handle the rank calls to compute p.ce.
+  
+  # for (w in 1:50){
+  # 	for (k in 1:4){
+  # 		nb[k,w] <- T[k]*lyg*w*1000 - cost[k]
+  # 		p.ce[k,w] <- equals(rank(nb[,w],k),4)
+  # 	}	
+  # }
+  
   for (w in 1:50){
   	for (k in 1:4){
   		nb[k,w] <- T[k]*lyg*w*1000 - cost[k]
-  		p.ce[k,w] <- equals(rank(nb[,w],k),4)
-  	}	
+  	}
+  }
+  
+  for (w in 1:50){
+    rank_w_results[1:4,w] <- rank(nb[,w])
+  	for (k in 1:4){
+  		p.ce[k,w] <- equals(rank_w_results[k,w],4)
+  	}
   }
 
 }
@@ -526,7 +546,7 @@ results <- jags(data = data,
 
 summary(results)
 
-plot(results)
+# plot(results)
 ```
 
 
@@ -534,39 +554,44 @@ plot(results)
 
 Random effects model for multi-arm trials (any number of arms).
 
-<font color="f00"?
-NOTE: This example does not use the rank function, but it does have multi-dimensional data that I am not sure how to import
+<font color="#008800"?
+NOTE: This example has 3-dimensional data consisting of three matrixes ('r', 'n', and 't') and a vector 'na'; I re-format them into a list of smaller data structures.
 </font>
 
-```{r mtc_re_multiarm, eval=FALSE}
+
+```{r mtc_re_multiarm}
 
 model_code <- "
 model{
-for(i in 1:NS){ 
-         w[i,1] <-0
-	     delta[i,t[i,1]]<-0
-	     mu[i] ~ dnorm(0,.0001)                                                   # vague priors for 24 trial baselines
-	     for (k in 1:na[i])  { 
-	            r[i,k] ~ dbin(p[i,t[i,k]],n[i,k])                                                     # binomial likelihood
-		  	  logit(p[i,t[i,k]])<-mu[i] + delta[i,t[i,k]] }                                                                    # model
-		 for (k in 2:na[i]) {
-                 delta[i,t[i,k]] ~ dnorm(md[i,t[i,k]],taud[i,t[i,k]])             # trial-specific LOR distributions
-                 md[i,t[i,k]] <-  d[t[i,k]] - d[t[i,1]]  + sw[i,k]                   # mean of LOR distributions
-                  taud[i,t[i,k]] <- tau *2*(k-1)/k                                    #precision of LOR distributions
-                  w[i,k] <- (delta[i,t[i,k]]  - d[t[i,k]] + d[t[i,1]])           #adjustment, multi-arm RCTs
-                  sw[i,k] <-sum(w[i,1:k-1])/(k-1) }                 # cumulative adjustment for multi-arm trials
-  }   
-
-d[1]<-0
-for (k in 2:NT){d[k] ~ dnorm(0,.0001) }                       #  vague priors for basic parameters
-
-sd~dunif(0,2)                                            #  vague prior for random effects standard deviation 
-tau<-1/pow(sd,2)
-	
+  for(i in 1:NS){ 
+    w[i,1] <- 0
+    delta[i,t[i,1]]<-0
+    mu[i] ~ dnorm(0,.0001)                                    # vague priors for 24 trial baselines
+    for (k in 1:na[i])  { 
+      r[i,k] ~ dbin(p[i, t[i,k]], n[i,k])                     # binomial likelihood
+      logit(p[i, t[i,k]])<-mu[i] + delta[i,t[i,k]] 
+    }                                                         # model
+    for (k in 2:na[i]) {
+      delta[i,t[i,k]] ~ dnorm(md[i, t[i,k]], taud[i,t[i,k]])  # trial-specific LOR distributions
+      md[i,t[i,k]] <-  d[t[i,k]] - d[t[i,1]]  + sw[i,k]       # mean of LOR distributions
+      taud[i,t[i,k]] <- tau *2*(k-1)/k                        # precision of LOR distributions
+      w[i,k] <- (delta[i,t[i,k]]  - d[t[i,k]] + d[t[i,1]])    # adjustment, multi-arm RCTs
+      sw[i,k] <- sum(w[i,1:(k-1)])/(k-1)                      # cumulative adjustment for multi-arm trials 
+            # !!! added parentheses around k-1 in 1:(k-1)
+    }
+  }
+  
+  d[1] <- 0
+  for (k in 2:NT){ d[k] ~ dnorm(0,.0001) }            #  vague priors for basic parameters
+  
+  sd ~ dunif(0,2)                                     #  vague prior for random effects standard deviation 
+  tau <- 1 / pow(sd,2)
 }
 " %>% textConnection
 
-data <- "r[,1]  n[,1]	r[,2]	n[,2]	r[,3]	n[,3]	t[,1]  t[,2] t[,3]   na[]   
+# "r[,1]  n[,1]	r[,2]	n[,2]	r[,3]	n[,3]	t[,1]  t[,2] t[,3]   na[]
+
+data_df <- "r1  n1	r2	n2	r3	n3	t1  t2 t3   na   
   9	  140	  23	  140	 10	138	 1      3     4      3
  11	   78	 12	    85	   29    170	2      3     4      3
  75	 731	363	 714	   NA	  1	 1      3   NA     2 
@@ -590,9 +615,18 @@ data <- "r[,1]  n[,1]	r[,2]	n[,2]	r[,3]	n[,3]	t[,1]  t[,2] t[,3]   na[]
 20	    49	 16	  43	    NA	    1	 2     3   NA      2
   7	    66	  32   127	    NA	    1	 2     4   NA      2
 12	  76	   20	  74        NA	    1	 3     4   NA      2
-  9	   55	    3	   26  	  NA	   1	 3     4   NA     2"
+  9	   55	    3	   26  	  NA	   1	 3     4   NA     2" %>% read.table(text=., header=TRUE)
 
-more_data <- list(NT=4, NS=24)
+# more_data <- list(NT=4, NS=24)
+
+data <- with(data_df, list(
+  r = cbind(r1, r2, r3),
+  n = cbind(n1, n2, n3),
+  t = cbind(t1, t2, t3),
+  na = na,
+  NT=4, 
+  NS=24
+))
 
 initial <- list(
   list(
@@ -606,8 +640,22 @@ initial <- list(
     sd=.2,
     mu=c(1,-1,-2,0,0,    -2,1,0,2,2,    1,-1,-2,0,0,   -2,1,0,2,2,   -2,-0.5,-3,0.5)
   )
-
-  
   
 )
+
+
+parameters_to_save <- c("tau", "sd", "delta") # What else?
+
+
+results <- jags(data = data,
+            inits = initial_values,
+            parameters.to.save = parameters_to_save,
+            model.file = model_code,
+            n.chains = length(initial_values),
+            n.adapt = 100,
+            n.iter = 50000,
+            n.burnin = 20000,
+            n.thin = 2)
+
+summary(results)
 ```
