@@ -10,18 +10,17 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r load_libraries, warning=FALSE, message=FALSE}
-library('rjags')
-library('coda')
-library('jagshelper')
+library('rjags')      # coda.samples
+library('dplyr')
 library('jagsUI')
 library('mcmcplots')  # caterplot
-library('dplyr')
+library('coda')
 ```
 
 
-# `caesarean_section_example_odc.txt`
+# `caesarean_section_example.odc`
 
-The code from this document fixes a problem with the original initial values from WinBUGS not working in JAGS. The first set of initial parameter values results in this error:
+The code below fixes a problem with the original initial values from WinBUGS not working in JAGS. The first set of initial parameter values results in this error:
 ```
 Error in `rjags::jags.model()`:
 ! Error in node ce.ratio
@@ -31,102 +30,101 @@ unless you change the values of `p1` and `beta` to 1e-6 instead of 0.
 
 ```{r caesarean_section_example_odc}
 
-
 # Model
 
 model_code <- "model
 {
 
-# META-ANALYSIS ADJUSTING FOR BASELINE RISK
+  # META-ANALYSIS ADJUSTING FOR BASELINE RISK
 
- for( i in 1 : Num) 
-	{
-		rc[i] ~ dbin(pc[i], nc[i])
-		rt[i] ~ dbin(pt[i], nt[i])	
-		logit(pc[i]) <- mu[i]
-		logit(pt[i]) <- mu[i] + delta[i] 
-		delta[i] <- delta.star[i]+ beta * (mu[i]-(-1.09))
-		mu[i] ~ dnorm(0.0,1.0E-3)
-		delta.star[i] ~ dnorm(d, prec)
-	}	
+  for (i in 1:Num) 
+  {
+  	rc[i] ~ dbin(pc[i], nc[i])
+  	rt[i] ~ dbin(pt[i], nt[i])	
+  	logit(pc[i]) <- mu[i]
+  	logit(pt[i]) <- mu[i] + delta[i] 
+  	delta[i] <- delta.star[i] + beta * (mu[i]-(-1.09))
+  	mu[i] ~ dnorm(0.0,1.0E-3)
+  	delta.star[i] ~ dnorm(d, prec)
+  }	
+  
+  d ~ dnorm(0.0,1.0E-6)
+  OR <- exp(d)	
+  d.pred ~ dnorm(d,prec)
+  beta ~ dnorm(0.0,1.0E-6)
+  
+  tau ~ dunif(0,10)
+  tau.sq <- tau*tau
+  prec <- 1/tau.sq
 
-	d ~ dnorm(0.0,1.0E-6)
-	OR <- exp(d)	
-	d.pred ~ dnorm(d,prec)
-	beta ~ dnorm(0.0,1.0E-6)
+  # DEVIANCE CONTRIBUTION
 
-	tau ~ dunif(0,10)
-	tau.sq <- tau*tau
-	prec <- 1/tau.sq
-
-# DEVIANCE CONTRIBUTION
-
- for( i in 1 : Num) 
-	{      
-       rthat[i] <- pt[i] * nt[i] 
-       dev[i] <- 2 * (rt[i] * (log(rt[i])-log(rthat[i]))  +  (nt[i]-rt[i]) * (log(nt[i]-rt[i]) - log(nt[i]-rthat[i])))
-	}
+  for (i in 1:Num) 
+  {      
+    rthat[i] <- pt[i] * nt[i] 
+    dev[i] <- 2 * (rt[i] * (log(rt[i])-log(rthat[i]))  +  (nt[i]-rt[i]) * (log(nt[i]-rt[i]) - log(nt[i]-rthat[i])))
+  }
 	
-	sumdev<-sum(dev[])
-	
-#DATA FOR DECISION MODEL	
+  sumdev <- sum(dev[])
+  
+  # DATA FOR DECISION MODEL	
+  
+  # Probability of wound infection without antibiotics
+  rc1 ~ dbin(p1,nc1)
+  p1 ~ dbeta(1,1)
+  
+  # Probability of wound infection with antibiotics
+  logit(p2) <- logit(p1) + d + beta*(logit(p1)-(-1.09))
+  # Length of stay in hospital with wound infection
+  loswd ~ dnorm(mnloswd,precwd)  
+  precwd <- 1/pow(sdloswd/sqrt(numwd),2)		
+  # Length of stay in hospital without wound infection	
+  losnwd ~ dnorm(mnlosnwd,precnwd)  
+  precnwd <- 1/pow(sdlosnwd/sqrt(numnwd),2)	
+  
+  # Antibiotics administration costs	
+  drugadmin ~ dunif(4,10)
+  
+  # QALYs - wound infection
+  QALYs.wd <- ((QALYwd/365)*loswd)+((Fullhealth/365)*(fllwupdays-loswd))
+  # QALYs - no wound infection
+  QALYs.nwd <- ((QALYnwd/365)*losnwd)+((Fullhealth/365)*(fllwupdays-losnwd))
+  
+  
+  # DECISION MODEL	
+  
+  # Cost with prophylactic antibiotics									
+  cst.trt <- (1-p2) * ((antibiotic+drugadmin) * 3 + (losnwd*inptnwd)) + p2 * ((antibiotic+drugadmin) * 3 + (loswd * inptwd))
+  # Cost without prophylactic antibiotics
+  cst.ctl <- (1-p1) * (losnwd*inptnwd) + p1 * (loswd*inptwd)		
+  # Difference in cost		
+  diff.cost <- cst.trt - cst.ctl
+  
+  # Number of wound infections avoided using prophylactic antibiotics
+  diff.wd <- (nc1 * (p1 - p2))
+  
+  # QALYs - with prophylactic antibiotics	
+  QALYs.trt <- (1-p2) * QALYs.nwd+p2 * QALYs.wd
+  # QALYs - without prophylactic antibiotics	
+  QALYs.ctl <- (1-p1) * QALYs.nwd+p1 * QALYs.wd
+  # Difference in QALYs	
+  diff.QALYs <- (QALYs.trt - QALYs.ctl)
+  
+  # Probability using prophylactic antibiotics costs less than not using prophylactic antibiotics
+  Q <- step(cst.ctl - cst.trt)
+  
+  # Cost effectiveness ratio
+  ce.ratio <- diff.cost/diff.wd	
+  cu.ratio <- diff.cost/diff.QALYs			
+  
+  # INCREMENTAL NET BENEFIT
 
-#Probability of wound infection without antibiotics
-	rc1 ~ dbin(p1,nc1)
-	p1 ~ dbeta(1,1)
-	
-#Probability of wound infection with antibiotics
-	logit(p2) <- logit(p1) + d + beta*(logit(p1)-(-1.09))
-#Length of stay in hospital with wound infection
-	loswd ~ dnorm(mnloswd,precwd)  
-	precwd <- 1/pow(sdloswd/sqrt(numwd),2)		
-#Length of stay in hospital without wound infection	
-	losnwd ~ dnorm(mnlosnwd,precnwd)  
-	precnwd <- 1/pow(sdlosnwd/sqrt(numnwd),2)	
-	
-#Antibiotics administration costs	
-	drugadmin ~ dunif(4,10)
-	
-#QALYs - wound infection
-	QALYs.wd <- ((QALYwd/365)*loswd)+((Fullhealth/365)*(fllwupdays-loswd))
-#QALYs - no wound infection
-	QALYs.nwd <- ((QALYnwd/365)*losnwd)+((Fullhealth/365)*(fllwupdays-losnwd))
-	
-
-#DECISION MODEL	
-
-#Cost with prophylactic antibiotics									
-	cst.trt <- (1-p2) * ((antibiotic+drugadmin) * 3 + (losnwd*inptnwd)) + p2 * ((antibiotic+drugadmin) * 3 + (loswd * inptwd))
-#Cost without prophylactic antibiotics
-	cst.ctl <- (1-p1) * (losnwd*inptnwd) + p1 * (loswd*inptwd)		
-#Difference in cost		
-	diff.cost <- cst.trt - cst.ctl
-	
-#Number of wound infections avoided using prophylactic antibiotics
-	diff.wd <- (nc1 * (p1 - p2))
-
-#QALYs - with prophylactic antibiotics	
-	QALYs.trt <- (1-p2) * QALYs.nwd+p2 * QALYs.wd
-#QALYs - without prophylactic antibiotics	
-	QALYs.ctl <- (1-p1) * QALYs.nwd+p1 * QALYs.wd
-#Difference in QALYs	
-	diff.QALYs <- (QALYs.trt - QALYs.ctl)
-
-#Probability using prophylactic antibiotics costs less than not using prophylactic antibiotics
-	Q <- step(cst.ctl - cst.trt)
-
-#Cost effectiveness ratio
-	ce.ratio <- diff.cost/diff.wd	
-	cu.ratio <- diff.cost/diff.QALYs			
-
-#INCREMENTAL NET BENEFIT
-
-for (k in 1:M) 
-	{
-		Rc1[k] <- (k-1) * 2000
-		INB.QALYs[k] <- Rc1[k] * diff.QALYs - diff.cost		
-		ProbCU[k] <- step(INB.QALYs[k])
-	 }
+  for (k in 1:M) 
+  {
+  	Rc1[k] <- (k-1) * 2000
+  	INB.QALYs[k] <- Rc1[k] * diff.QALYs - diff.cost		
+  	ProbCU[k] <- step(INB.QALYs[k])
+  }
 }
 " %>% textConnection
 
@@ -134,7 +132,7 @@ for (k in 1:M)
 # Data
 
 data <- list(
-  Num = 35, 
+  Num=35, 
   rc1=41, 
   nc1=486, 
   inptwd=163.03, 
@@ -235,48 +233,26 @@ results_summary
 
 ```
 
-```{r attempted_summary_plots}
-
-with(results_summary[1:21,], {
-  plot(mean, sd, type='l')
-})
-
-ProbCU <- results_summary[1:21,]
-with(ProbCU, {
-  plot(mean, type='b', ylim=c(0,1))
-})
-
-
-
-
-
-```
-
 ```{r plot_results}
-plot(results)
+plot(results, parameters=c("ProbCU[1]", "INB.QALYs[1]", "diff.QALYs","diff.cost","OR",
+                        "ce.ratio","cu.ratio","p1","p2") )
 ```
 
-## Plot Me
+## To Do: recreate the following plots
 
-```
-ScatterPlot (CE Acceptability curve): 
-					ProbCU vs Rc1
-				
-Correlation Scatterplot (CE plane):
-					diff.QALYs vs diff.cost
-					
-Coda (input into Excel to produce CE plane):
-					diff.QALYs
-					diff.cost
+* ScatterPlot (CE Acceptability curve): ProbCU vs Rc1
+* Correlation Scatterplot (CE plane): diff.QALYs vs diff.cost
+* Coda (input into Excel to produce CE plane): diff.QALYs vs diff.cost
+* Summary stats (input into Excel to produce CEAC): ProbCU
 
-Summary stats (input into Excel to produce CEAC):
-					ProbCU
-```
+For coda example, see the course notes from [Bayesian Analysis in JAGS: EMD chapter 6](https://public.wsu.edu/~jesse.brunner/classes/bio572/Lab7_Bayesian.html).
 
-For coda example, see the course notes from [Baysean Analysis in JAGS: EMD chapter 6](https://public.wsu.edu/~jesse.brunner/classes/bio572/Lab7_Bayesian.html).
+
+
+
+
 
 ```{r plot_coda_data}
-
 
 coda_sample <- coda.samples(results$model, variable.names = c("diff.QALYs", "diff.cost"), 
     n.iter = 10000)
@@ -299,7 +275,7 @@ coda_sample_2_df <- function(my_coda_sample){
 
 coda_df <- coda_sample %>% 
   coda_sample_2_df %>% 
-  sample_frac(1L) # radomly scramble chain order
+  sample_frac(1L) # randomly scramble chain order
 
 coda_df %>%
   ggplot(aes(x=diff.QALYs, y=diff.cost, col=chain)) + geom_point(size=0.5, alpha=0.5)
@@ -307,7 +283,8 @@ coda_df %>%
 ```
 
 
-# Ch_07
+### ProbCU vs Rc1
+
 ```{r ProbCU_vs_Rc1}
 
 # This makes 21 ProbCU columns and 21 Rc1 columns
@@ -345,3 +322,242 @@ probcu_rc1_df %>%
   ggplot(aes(x=`ProbCU`, y=`Rc1`)) + geom_violin()
 
 ```
+
+
+
+```{r attempted_summary_plots}
+
+with(results_summary[1:21,], {
+  plot(mean, sd, type='l')
+})
+
+ProbCU <- results_summary[1:21,]
+with(ProbCU, {
+  plot(mean, type='b', ylim=c(0,1))
+})
+
+```
+
+# Code for Exercises
+
+## `Model_1_decision_model_odc.txt`
+
+This is the code for Exercise 3.1, a deterministic decision tree comparing the use of prophylactic neuaminidase inhibitors (NIs) to standard care for influenza. Exercise 7.1a asks you to combine this with the meta-analysis in `meta-analysis.odc`.
+
+```{r model_1_decision_model}
+
+model_code <- "model
+{ 
+
+  # DECISION MODEL
+  costtrt <- ((1-p2) *(cdoc+cdrug) +p2* (cdoc+(cdrug)+cflu))
+  costctl <- ((1-p1)*(cdoc)+p1*(cdoc+cflu))
+  diff.cost <- costtrt-costctl
+
+}" %>% textConnection
+
+#DATA
+
+data <- list(
+  cdrug=118,    # cost of neuraminidase treatment
+  cdoc=19,      # cost of visit to GP
+  cflu=100,     # cost of treating flu
+  p1=0.05,      # probability of contracting flu under standard care
+  p2=0.03       # probability of contracting flu under NI prophylaxis				   
+)
+
+#RESULTS
+
+results <- jags(
+  data = data,
+  parameters.to.save = c("cdrug", "cdoc", "cflu", "p1", "p2",
+                         "costtrt", "costctl", "diff.cost"),
+  model.file = model_code,
+  n.chains = 1,
+  n.iter=1
+)
+
+
+results
+
+```
+
+## `meta_analysis_odc.txt`
+
+This code is for the NI Meta-Analysis that goes with Exercise 7.1a.
+
+```{r meta_analysis_odc}
+
+model_code <- "model { 
+
+  # META-ANALYSIS OF EFFECTIVENESS - ODDS RATIO (OR)
+
+  for( j in 1 : Num ) 
+    {
+      rc[j] ~ dbin(pc[j], nc[j])
+      rt[j] ~ dbin(pt[j], nt[j])
+      logit(pc[j]) <- mu[j]
+      logit(pt[j]) <- mu[j]+delta[j]
+      delta[j] ~ dnorm(d,prec)	
+      mu[j] ~ dnorm(0.0,1.0E-6)		
+    }
+	
+  # PRIOR DISTRIBUTIONS
+  
+  d ~ dnorm(0.0,1.0E-6)
+  tau ~ dunif(0,10)
+  tau.sq <- tau*tau
+  prec <- 1/tau.sq
+  	
+  # ODDS RATIO
+  
+  or <- exp(d)
+
+}" %>% textConnection
+
+# DATA
+data <- list(
+  rt=c(3,3,11,7,3),  nt=c(268,252,553,414,144),   	# Trial data - treatment arm
+  rc=c(19,6,34,40,9),  nc=c(268,251,554,423,144),   # Trial data - standard care arm
+  Num = 5						                                # number of studies in the meta-analysis
+)
+
+# INITIAL VALUES: This is a list of lists, one per chain.
+initial_values <- list(
+  list(tau=1, d=0, mu=c(0,0,0,0,0), delta=c(0,0,0,0,0))
+)
+
+results <- jags(data = data,
+            inits = initial_values,
+            parameters.to.save = c("d", "tau", "or"),
+            model.file = model_code,
+            n.chains = length(initial_values),
+            n.adapt = 100,
+            n.iter = 50000,
+            n.burnin = 20000)
+
+summary(results)
+
+plot(results)
+
+```
+
+
+## `Model 3 - CEAC.xls`
+
+Exercise 7.2c asks you to paste the values for ProbCE into the yellow shaded cells of this spreadsheet to plot a graph that includes the cost-effectiveness acceptability curve.
+
+# TO DO: Plot the graph for exercise 7.2c in R.
+
+# Solutions to Exercises
+
+## Question 7.1: Decision model + Meta-Analysis solution
+
+```{r exercise_7_1}
+model_code <- "
+model
+{ 
+
+  # META-ANALYSIS OF EFFECTIVENESS - ODDS RATIO (OR)
+  
+  for (j in 1:Num) 
+  {
+    rc[j] ~ dbin(pc[j], nc[j])
+    rt[j] ~ dbin(pt[j], nt[j])
+    logit(pc[j]) <- mu[j]
+    logit(pt[j]) <- mu[j]+delta[j]
+    delta[j] ~ dnorm(d,prec)	
+    mu[j] ~ dnorm(0.0,1.0E-6)	
+  }
+	
+  # PRIOR DISTRIBUTIONS
+  
+  d ~ dnorm(0.0,1.0E-6)
+  tau ~ dunif(0,10)
+  tau.sq <- tau*tau
+  prec <- 1/tau.sq
+  
+  # ODDS RATIO
+  
+  or <- exp(d)
+  
+  
+  #CALCULATION OF p2 FROM ODDS RATIO
+  
+  logit(p2) <- logit(p1)+d
+  
+  #DECISION MODEL
+  
+  costtrt <- ((1-p2) *(cdoc+cdrug) +p2* (cdoc+(cdrug)+cflu))
+  costctl <- ((1-p1)*(cdoc)+p1*(cdoc+cflu))
+  diff.cost <- costtrt-costctl
+
+}" %>% textConnection
+
+#DATA
+
+data <- list(
+  rt=c(3,3,11,7,3),  nt=c(268,252,553,414,144),   # Trial data - treatment arm
+  rc=c(19,6,34,40,9),  nc=c(268,251,554,423,144), # Trial data - standard care arm
+  Num = 5,  			# number of studies in the meta-analysis
+  cdrug=118,   		# cost of neuraminidase treatment
+  cdoc=19, 				# cost of visit to GP
+  cflu=100, 			# cost of treating flu
+  p1=0.05					# prob of contracting flu under standard care
+)
+
+#INITIAL VALUES
+initial_values <- list(
+  list(tau=1, d=0, mu=c(0,0,0,0,0), delta=c(0,0,0,0,0))
+)
+
+parameters_to_save <- c("costtrt", "delta", "diff.cost", "mu", "or", "p2", "tau.sq")
+
+ex1_results <- jags(data = data,
+            inits = initial_values,
+            parameters.to.save = parameters_to_save,
+            model.file = model_code,
+            n.chains = length(initial_values),
+            n.adapt = 100,
+            n.iter = 50000,
+            n.burnin = 20000)
+
+ex1_summary <- summary(ex1_results) %>% as.data.frame
+ex1_summary['node'] <- row.names(ex1_summary)
+
+ex1_summary
+```
+```{r ex1_density_plots}
+densityplot(ex1_results, parameters=c('or', 'diff.cost'))
+```
+Comparing to the "official" answers from Solutions to Exercises, all the values plot on top of one another (except deviance, which does not appear in the official results).
+```{r exercise_7_1_results_comparison}
+official_results <- "node	 mean	 sd	 M_error	2.5pct	median	97.5pct	start	sample
+costtrt	138.3	1.277	0.01573	137.5	138.2	139.6	5001	15000
+delta[1]	-1.642	0.4318	0.00834	-2.655	-1.588	-0.9232	5001	15000
+delta[2]	-1.268	0.4882	0.008834	-2.139	-1.315	-0.1579	5001	15000
+delta[3]	-1.327	0.3072	0.006392	-1.904	-1.336	-0.6997	5001	15000
+delta[4]	-1.638	0.3415	0.007694	-2.404	-1.609	-1.047	5001	15000
+delta[5]	-1.384	0.4494	0.00709	-2.284	-1.395	-0.4277	5001	15000
+diff.cost	114.3	1.277	0.01573	113.5	114.2	115.6	5001	15000
+mu[1]	-2.649	0.2367	0.002346	-3.135	-2.641	-2.201	5001	15000
+mu[2]	-3.625	0.3676	0.003682	-4.409	-3.603	-2.964	5001	15000
+mu[3]	-2.709	0.1697	0.002022	-3.055	-2.705	-2.391	5001	15000
+mu[4]	-2.301	0.1639	0.001936	-2.633	-2.296	-1.993	5001	15000
+mu[5]	-2.709	0.3232	0.003224	-3.378	-2.692	-2.118	5001	15000
+or	0.2645	0.42	0.004911	0.1042	0.2357	0.5086	5001	15000
+p2	0.01346	0.01277	1.573E-4	0.005455	0.01225	0.02607	5001	15000
+tau.sq	0.6589	2.799	0.05125	3.649E-4	0.1442	4.002	5001	15000" %>% read.delim(text=., sep="\t")
+
+names(official_results) <- names(official_results) %>% gsub("X([0-9.]+)pct", "\\1%", .)
+
+compare_cols <- c('node', 'mean', 'sd')
+bind_rows(
+  ex1_summary[-16, compare_cols] %>% mutate("source"='new'), 
+  official_results[compare_cols] %>% mutate("source"='old')
+) %>% ggplot(aes(x=node, y=mean, col=source, shape=source)) + 
+  geom_point(size=4) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  scale_shape_manual(values=c(1, 4))
+```
+
