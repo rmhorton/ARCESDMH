@@ -118,9 +118,9 @@ effectiveness_data <-  list(
   c=effectiveness_df['Control', 'Infection'],
   d=effectiveness_df['Control', 'No_infection']
 )
-data <- append(cost_data, effectiveness_data)
+deterministic_data <- append(cost_data, effectiveness_data)
 
-# data <- list(
+# deterministic_data <- list(
 #   losnwd=6.7,
 #   loswd=8.8,
 #   cstnwd=107.26,
@@ -137,7 +137,7 @@ data <- append(cost_data, effectiveness_data)
 # )
 
 results <- jags(
-  data = data,
+  data = deterministic_data,
   parameters.to.save = c("p1", "p2", "costtrt", "costctl"),
   model.file = model_code %>% textConnection,
   n.chains = 1,
@@ -154,11 +154,6 @@ results
 
 This is the model on pp 59-60.
 
-```{r stochastic_cost_data}
-
-uncertainty <- c(sdloswd=3.5, sdlosnwd=7.1)
-
-```
 
 ```{r stochastic_decision_tree}
 
@@ -189,15 +184,47 @@ model{
   diff.cost <- cst.trt - cst.ctl             # Difference in cost
 }" %>% textConnection()
 
-stochastic_data <- list(
-  rc1=41, nc1=486, cstwd=163.03, cstnwd=107.26,
-  mnloswd=8.8, sdloswd=3.5,
-  mnlosnwd=6.7, sdlosnwd=7.1,
-  numwd=41, numnwd=445, # !!! numwd == rc1; numnwd == (nc1 - rc1)
-  cstPx=5.67,
-  # rt=4, nt=133, rc=28, nc=136,  # !!! Unused variables
-  a=4, b=129, c=28, d=108
-)
+# stochastic_data <- list(
+#   rc1=41, nc1=486, cstwd=163.03, cstnwd=107.26,
+#   mnloswd=8.8, sdloswd=3.5,
+#   mnlosnwd=6.7, sdlosnwd=7.1,
+#   numwd=41, numnwd=445, # !!! numwd == rc1; numnwd == (nc1 - rc1)
+#   cstPx=5.67,
+#   # rt=4, nt=133, rc=28, nc=136,  # !!! Unused variables
+#   a=4, b=129, c=28, d=108
+# )
+
+# Here I code the changes from the data for the deterministic model to the 
+# data for the stochastic one, in case that makes the differences easier to see.
+# Otherwise, just use the commented-out list above.
+
+    # Add these:
+    # setdiff(names(stochastic_data), names(deterministic_data))
+    # "mnloswd"  "sdloswd"  "mnlosnwd" "sdlosnwd"
+    # "numwd" ==  rc1;
+    # "numnwd" == (nc1 - rc1)
+    # 
+    # Remove or rename these:
+    # setdiff(names(deterministic_data), names(stochastic_data))
+    #  "loswd" -> "mnloswd"
+    #  "losnwd" -> "mnlosnwd"
+    #  "cstadmin" hard-coded uniform distribution
+    #  "dose": hard-coded !!!
+
+uncertainty <- c(sdloswd=3.5, sdlosnwd=7.1) # standard deviations from Table 3.4
+rename_me <- c("loswd"="mnloswd", "losnwd"="mnlosnwd")
+
+stochastic_data <- append(deterministic_data, uncertainty)
+for (old_name in names(rename_me)){
+  new_name <- rename_me[[old_name]]
+  names(stochastic_data)[names(stochastic_data) == old_name] <- new_name
+}
+stochastic_data["cstadmin"] <- NULL # now coded as uniform random
+stochastic_data["dose"] <- NULL # the 3 is hard coded now
+
+stochastic_data["numwd"] <- stochastic_data["rc1"]; 
+stochastic_data["numnwd"] <-  with(stochastic_data, (nc1 - rc1))
+
 
 parameters_to_save <- c("cst.trt", "cst.ctl", "diff.cost")
 
@@ -215,33 +242,40 @@ stochastic_results_summary
 
 ```
 
+
+```{r plot_stochastic_results}
+plot(stochastic_results)
+```
+
+
+### Prior distributions
+
+
 ```{r prior_distributions}
 
 with(stochastic_data, {
   curve(dbeta(x, rc1, nc1 - rc1), 
         from = 0, to = 1,
+        n=1001,
         xlab = "p1", 
         ylab = "Density", 
         main = "Prior distribution for p1");
   
   curve(dnorm(x, mean=mnloswd, sd=sdloswd),
         from=0, to=21,
+        n=1001,
         xlab = "Length of stay",
         ylab = "Density",
         main = "Prior distribution for length of stay, wound infection");
   
   curve(dnorm(x, mean=mnlosnwd, sd=sdlosnwd),
         from=0, to=21,
+        n=1001,
         xlab = "Length of stay",
         ylab = "Density",
         main = "Prior distribution for length of stay, no wound infection");
 })
 
-```
-
-
-```{r plot_stochastic_results}
-plot(stochastic_results)
 ```
 
 ## Economic evaluation
@@ -294,15 +328,20 @@ model{
 }
 " %>% textConnection()
 
-economic_data <- list(
-  rc1=41, nc1=486, cstwd=163.03, cstnwd=107.26,
-  mnloswd=8.8, sdloswd=3.5,
-  mnlosnwd=6.7, sdlosnwd=7.1,
-  numwd=41, numnwd=445,
-  cstPx=5.67,
-  a=4, b=129, c=28, d=108,
+# economic_data <- list(
+#   rc1=41, nc1=486, cstwd=163.03, cstnwd=107.26,
+#   mnloswd=8.8, sdloswd=3.5,
+#   mnlosnwd=6.7, sdlosnwd=7.1,
+#   numwd=41, numnwd=445,
+#   cstPx=5.67,
+#   a=4, b=129, c=28, d=108,
+#   # additional data for economic evaluation
+#   M=21, QALYwd=0.68, QALYnwd=0.88, Fullhealth=1, fllwupdays=20
+# )
+
+economic_data <- append(stochastic_data,
   # additional data for economic evaluation
-  M=21, QALYwd=0.68, QALYnwd=0.88, Fullhealth=1, fllwupdays=20
+  list(M=21, QALYwd=0.68, QALYnwd=0.88, Fullhealth=1, fllwupdays=20)
 )
 
 parameters_to_save <- c(#"ProbCE", 
@@ -322,24 +361,16 @@ economic_results_summary <- summary(economic_results) %>% as.data.frame()
 economic_results_summary
 
 ```
-```{r coda_samples}
-my_vars <- c("p1", "p2", "diff.QALYs", "diff.cost", "cst.trt", "cst.ctl")
-coda_sample <- coda.samples(economic_results$model, variable.names = my_vars, 
-    n.iter = 10000)
-```
-```{r plot_coda_data}
 
-coda_df <- coda_sample %>% 
+
+
+
+```{r plot_simulation_results}
+my_vars <- c('p1', 'p2', 'cst.trt', 'cst.ctl', 'diff.cost')
+coda_df <- coda.samples(economic_results$model, variable.names = my_vars, 
+    n.iter = 10000) %>% 
   coda_sample_2_df %>% 
   sample_frac(1L) # randomly scramble chain order
-
-coda_df %>%
-  ggplot(aes(x=diff.QALYs, y=diff.cost, col=chain)) + 
-  geom_point(size=0.5, alpha=0.1) +
-  geom_abline(slope=0, intercept=0, linetype='solid') +
-  geom_abline(slope=10000*(1:3), intercept=0, linetype='dotted') +
-  theme(legend.position="none") +
-  labs(x = "Incremental QALYs", y = "Incremental costs", title="Cost-effectiveness plane for Caesarian section example")
 
 plot_densities_from_coda_df(c('cst.trt', 'cst.ctl'), coda_df)
 
@@ -349,6 +380,87 @@ plot_densities_from_coda_df(c('p1', 'p2'), coda_df)
 
 ```
 
+## Stochastic economic decision model results
+
+### Cost-Effectiveness
+Figure 3.4: Cost-effectiveness plane (10000 simulations) for Caesarean section example.
+ 
+```{r plot_ce}
+ce_vars <- c("diff.QALYs", "diff.cost")
+ce_df <- coda.samples(economic_results$model, variable.names = ce_vars, 
+    n.iter = 10000) %>% coda_sample_2_df
+  
+ce_df %>%
+  ggplot(aes(x=diff.QALYs, y=diff.cost, col=chain)) + 
+  geom_point(size=0.5, alpha=0.1) +
+  geom_abline(slope=0, intercept=0, linetype='solid') +
+  geom_abline(slope=10000*(1:3), intercept=0, linetype='dotted') +
+  theme(legend.position="none") +
+  labs(x = "Incremental QALYs", y = "Incremental costs", title="Cost-effectiveness plane for Caesarian section example")
+```
+
+
+### Cost-effectiveness
+
+```{r economic_results}
+inb_vars <- c("INB", "ProbCE")
+inb_df <- coda.samples(economic_results$model, variable.names = inb_vars, 
+    n.iter = 10000) %>% 
+  coda_sample_2_df %>%
+  group_by(chain) %>%
+  mutate(iteration=row_number()) %>%
+  ungroup() %>%
+  as.data.frame
+
+inb_df_long <- inb_df %>% 
+  pivot_longer(
+    cols=1:42,
+    names_to=c("metric", "k"),
+    names_pattern="(INB|ProbCE)\\[(\\d+)\\]",
+    values_to="value"
+  ) %>%
+  mutate(k=as.integer(k), lambda=2000*(k-1))
+```
+
+### Cost-effectiveness acceptability curve for Caesarian section example.
+
+Figure 3.5 [also 3.6(c)]. WTP = "Willingness To Pay"
+
+```{r CE_acceptability_curve, message=FALSE}
+
+inb_df_long %>%
+  group_by(metric, lambda) %>%
+  filter(metric=="ProbCE") %>%
+  summarize(P_CE=mean(value)) %>% 
+  ggplot(aes(x=lambda, y=P_CE, group=metric)) + geom_line() + 
+    ylim(0,1) + 
+    ylab("Probability cost effective)") + 
+    xlab("Lambda, WTP per additional QALY") +
+    ggtitle("Cost-effectiveness acceptability curve")
+  
+
+```
+
+### Expected net benefit (INB) and 95% interval for a range of lambda values.
+
+Figure 3.6(b): Expected incremental net benefit and 95% nterval for a range of lambda.
+
+```{r expected_INB}
+
+ # quantile(probs = c(2.5, 50, 97.5)/100)
+inb_df_long %>%
+  group_by(metric, lambda) %>%
+  filter(metric=="INB") %>%
+  summarize(
+    mean_INB=mean(value),
+    lo_end=quantile(value, probs=0.025),
+    hi_end=quantile(value, probs=0.975)) %>% 
+  ggplot(aes(x=lambda, group=metric)) + 
+    geom_line(aes(y=mean_INB)) + 
+    geom_line(aes(y=lo_end), linetype="dashed") + 
+    geom_line(aes(y=hi_end), linetype="dashed")
+
+```
 
 # Code for Exercises
 
