@@ -184,19 +184,18 @@ model{
   diff.cost <- cst.trt - cst.ctl             # Difference in cost
 }" %>% textConnection()
 
-# stochastic_data <- list(
-#   rc1=41, nc1=486, cstwd=163.03, cstnwd=107.26,
-#   mnloswd=8.8, sdloswd=3.5,
-#   mnlosnwd=6.7, sdlosnwd=7.1,
-#   numwd=41, numnwd=445, # !!! numwd == rc1; numnwd == (nc1 - rc1)
-#   cstPx=5.67,
-#   # rt=4, nt=133, rc=28, nc=136,  # !!! Unused variables
-#   a=4, b=129, c=28, d=108
-# )
+stochastic_data <- list(
+  rc1=41, nc1=486, cstwd=163.03, cstnwd=107.26,
+  mnloswd=8.8, sdloswd=3.5,
+  mnlosnwd=6.7, sdlosnwd=7.1,
+  numwd=41, numnwd=445, # !!! numwd == rc1; numnwd == (nc1 - rc1)
+  cstPx=5.67,
+  # rt=4, nt=133, rc=28, nc=136,  # !!! Unused variables
+  a=4, b=129, c=28, d=108
+)
 
 # Here I code the changes from the data for the deterministic model to the 
 # data for the stochastic one, in case that makes the differences easier to see.
-# Otherwise, just use the commented-out list above.
 
     # Add these:
     # setdiff(names(stochastic_data), names(deterministic_data))
@@ -211,19 +210,19 @@ model{
     #  "cstadmin" hard-coded uniform distribution
     #  "dose": hard-coded !!!
 
-uncertainty <- c(sdloswd=3.5, sdlosnwd=7.1) # standard deviations from Table 3.4
-rename_me <- c("loswd"="mnloswd", "losnwd"="mnlosnwd")
-
-stochastic_data <- append(deterministic_data, uncertainty)
-for (old_name in names(rename_me)){
-  new_name <- rename_me[[old_name]]
-  names(stochastic_data)[names(stochastic_data) == old_name] <- new_name
-}
-stochastic_data["cstadmin"] <- NULL # now coded as uniform random
-stochastic_data["dose"] <- NULL # the 3 is hard coded now
-
-stochastic_data["numwd"] <- stochastic_data["rc1"]; 
-stochastic_data["numnwd"] <-  with(stochastic_data, (nc1 - rc1))
+# uncertainty <- c(sdloswd=3.5, sdlosnwd=7.1) # standard deviations from Table 3.4
+# rename_me <- c("loswd"="mnloswd", "losnwd"="mnlosnwd")
+# 
+# stochastic_data <- append(deterministic_data, uncertainty)
+# for (old_name in names(rename_me)){
+#   new_name <- rename_me[[old_name]]
+#   names(stochastic_data)[names(stochastic_data) == old_name] <- new_name
+# }
+# stochastic_data["cstadmin"] <- NULL # now coded as uniform random
+# stochastic_data["dose"] <- NULL # the 3 is hard coded now
+# 
+# stochastic_data["numwd"] <- stochastic_data["rc1"]; 
+# stochastic_data["numnwd"] <-  with(stochastic_data, (nc1 - rc1))
 
 
 parameters_to_save <- c("cst.trt", "cst.ctl", "diff.cost")
@@ -231,7 +230,7 @@ parameters_to_save <- c("cst.trt", "cst.ctl", "diff.cost")
 stochastic_results <- jags( data = stochastic_data,
                             parameters.to.save = parameters_to_save,
                             model.file = stochastic_model_code,
-                            n.chains = 1,
+                            n.chains = 4,
                             n.adapt = 100,
                             n.iter = 50000,
                             n.burnin = 20000)
@@ -277,6 +276,26 @@ with(stochastic_data, {
 })
 
 ```
+
+### Simulation results
+
+Here we re-sample an exissting model and plot densities of several variables using the R functions defined at the beginning of this document.
+
+```{r plot_simulation_results}
+my_vars <- c('p1', 'p2', 'cst.trt', 'cst.ctl', 'diff.cost')
+coda_df <- coda.samples(stochastic_results$model, variable.names = my_vars, 
+    n.iter = 10000) %>% 
+  coda_sample_2_df %>% 
+  sample_frac(1L) # randomly scramble chain order
+
+plot_densities_from_coda_df(c('cst.trt', 'cst.ctl'), coda_df)
+
+coda_df %>% ggplot(aes(x=diff.cost)) + geom_density()
+
+plot_densities_from_coda_df(c('p1', 'p2'), coda_df)
+
+```
+
 
 ## Economic evaluation
 
@@ -361,25 +380,6 @@ economic_results_summary <- summary(economic_results) %>% as.data.frame()
 economic_results_summary
 
 ```
-
-
-
-
-```{r plot_simulation_results}
-my_vars <- c('p1', 'p2', 'cst.trt', 'cst.ctl', 'diff.cost')
-coda_df <- coda.samples(economic_results$model, variable.names = my_vars, 
-    n.iter = 10000) %>% 
-  coda_sample_2_df %>% 
-  sample_frac(1L) # randomly scramble chain order
-
-plot_densities_from_coda_df(c('cst.trt', 'cst.ctl'), coda_df)
-
-coda_df %>% ggplot(aes(x=diff.cost)) + geom_density()
-
-plot_densities_from_coda_df(c('p1', 'p2'), coda_df)
-
-```
-
 ## Stochastic economic decision model results
 
 ### Cost-Effectiveness
@@ -507,4 +507,29 @@ results
 
 ```
 
+# Errata
 
+Text that should be deleted is marked in [square brackets]; text that should be added is marked in {curly braces}.
+
+* p 47:
+  - Equation 3.2 is about Odds Ratio, not Relative Risk. It should be
+  $ var(ln(OR)) = 1/a + 1/b + 1/c + 1/d $
+  
+* p 54:
+  - "estimate [the ]the payoffs"
+
+* p 59:
+  - An additional set of parentheses is needed to make the whole expression an argument of the log function: `theta <- log( (a/(a+b))/(c/(c+d)) )`
+
+* p 60:
+  - `dose` is hard-coded as `3`, where in the deterministic version it was specified as a data variable. It would be more consistent to do it the same way in both programs.
+  
+* p 61:
+  - "However, in the situation where the new treatment is either more effective [but less]{and more} costly ..."
+
+* p 63:
+  - Figure 3.6(a) basically repeats Figure 3.4.
+  - Figure 3.6(c) basically repeats Figure 3.5.
+
+* p 69:
+  - "... relevancy of evidence should be defined more broadly than afforded in Table 3.[1]{7}."
