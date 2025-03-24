@@ -260,14 +260,14 @@ with(stochastic_data, {
         ylab = "Density", 
         main = "Prior distribution for p1");
   
-  curve(dnorm(x, mean=mnloswd, sd=sdloswd),
+  curve(dnorm(x, mean=mnloswd, sd=sdloswd/sqrt(numwd)),
         from=0, to=21,
         n=1001,
         xlab = "Length of stay",
         ylab = "Density",
         main = "Prior distribution for length of stay, wound infection");
   
-  curve(dnorm(x, mean=mnlosnwd, sd=sdlosnwd),
+  curve(dnorm(x, mean=mnlosnwd, sd=sdlosnwd/sqrt(numwd)),
         from=0, to=21,
         n=1001,
         xlab = "Length of stay",
