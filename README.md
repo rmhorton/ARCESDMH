@@ -13,3 +13,7 @@ Code that needed to be tweaked to run in JAGS:
 
 * Chapter_09: `rank` function; multi-dimensional data reformatted as list of matrixes.
 * Chapter 12: `ranked` function.
+
+
+# To Do:
+* remove thinning from all models
