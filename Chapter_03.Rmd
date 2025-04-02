@@ -389,14 +389,25 @@ Figure 3.4: Cost-effectiveness plane (10000 simulations) for Caesarean section e
 ce_vars <- c("diff.QALYs", "diff.cost")
 ce_df <- coda.samples(economic_results$model, variable.names = ce_vars, 
     n.iter = 10000) %>% coda_sample_2_df
-  
+
+XLIM = c(0, 7e-4)     # use same limits as chapter 3
+YLIM = c(-75, 50)
+LAMBDAS = 10000*(1:3)
 ce_df %>%
   ggplot(aes(x=diff.QALYs, y=diff.cost, col=chain)) + 
   geom_point(size=0.5, alpha=0.1) +
   geom_abline(slope=0, intercept=0, linetype='solid') +
-  geom_abline(slope=10000*(1:3), intercept=0, linetype='dotted') +
+  geom_abline(slope=LAMBDAS, intercept=0, linetype='dotted') +
   theme(legend.position="none") +
-  labs(x = "Incremental QALYs", y = "Incremental costs", title="Cost-effectiveness plane for Caesarian section example")
+  labs(x = "Incremental QALYs", y = "Incremental costs", title="Cost-effectiveness plane for Caesarian section example") + 
+  coord_cartesian(xlim=XLIM, ylim=YLIM) + 
+  annotate("text", x = XLIM[2], y = LAMBDAS * XLIM[2], 
+           size=3, hjust=0.8, vjust=-0.25,
+           label = paste("lambda ==", LAMBDAS), parse=TRUE)
+
+# save plot and data to compare to Ch. 7
+ggsave("ce_scatterplot_ch3.pdf")
+write.csv(ce_df, "ce_data_Ch3.csv")
 ```
 
 
@@ -443,9 +454,9 @@ inb_df_long %>%
 
 ### Expected net benefit (INB) and 95% interval for a range of lambda values.
 
-Figure 3.6(b): Expected incremental net benefit and 95% nterval for a range of lambda.
+Figure 3.6(b): Expected incremental net benefit and 95% interval for a range of lambda.
 
-```{r expected_INB}
+```{r expected_INB, message=FALSE}
 
  # quantile(probs = c(2.5, 50, 97.5)/100)
 inb_df_long %>%
