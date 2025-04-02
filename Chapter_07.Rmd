@@ -12,6 +12,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r load_libraries, warning=FALSE, message=FALSE}
 library('rjags')      # coda.samples
 library('dplyr')
+library('tidyr')
 library('jagsUI')
 library('mcmcplots')  # caterplot
 library('coda')
@@ -128,7 +129,6 @@ model_code <- "model
 }
 " %>% textConnection
 
-
 # Data
 
 data <- list(
@@ -217,7 +217,8 @@ parameters_to_save <- c("ProbCU", "INB.QALYs", "Rc1", "diff.QALYs","diff.cost","
                         "beta","ce.ratio","cu.ratio","p1","p2",
                         "sumdev","tau.sq")
 
-results <- jags(data = data,
+# meta-analysis decision model
+mad_results <- jags(data = data,
             inits = initial_values,
             parameters.to.save = parameters_to_save,
             model.file = model_code,
@@ -227,34 +228,28 @@ results <- jags(data = data,
             n.burnin = 20000,
             n.thin = 2)
 
-results_summary <- summary(results) %>% as.data.frame()
+mad_results_summary <- summary(mad_results) %>% as.data.frame()
 
-results_summary
+mad_results_summary
 
 ```
 
 ```{r plot_results}
-plot(results, parameters=c("ProbCU[1]", "INB.QALYs[1]", "diff.QALYs","diff.cost","OR",
+plot(mad_results, parameters=c("ProbCU[1]", "INB.QALYs[1]", "diff.QALYs","diff.cost","OR",
                         "ce.ratio","cu.ratio","p1","p2") )
 ```
 
-## To Do: recreate the following plots
 
-* ScatterPlot (CE Acceptability curve): ProbCU vs Rc1
-* Correlation Scatterplot (CE plane): diff.QALYs vs diff.cost
-* Coda (input into Excel to produce CE plane): diff.QALYs vs diff.cost
-* Summary stats (input into Excel to produce CEAC): ProbCU
+### Correlation Scatterplot (CE plane): diff.QALYs vs diff.cost
 
-For coda example, see the course notes from [Bayesian Analysis in JAGS: EMD chapter 6](https://public.wsu.edu/~jesse.brunner/classes/bio572/Lab7_Bayesian.html).
+Here we re-sample the model to monitor cost-effectiveness parameters.
 
-
-
-
+For an example using coda.samples, see the course notes from [Bayesian Analysis in JAGS: EMD chapter 6](https://public.wsu.edu/~jesse.brunner/classes/bio572/Lab7_Bayesian.html).
 
 
 ```{r plot_coda_data}
 
-coda_sample <- coda.samples(results$model, variable.names = c("diff.QALYs", "diff.cost"), 
+ce_coda_sample <- coda.samples(mad_results$model, variable.names = c("diff.QALYs", "diff.cost"), 
     n.iter = 10000)
 
 # one set of results per chain?
@@ -273,51 +268,131 @@ coda_sample_2_df <- function(my_coda_sample){
     mutate(chain=factor(chain))
 }
 
-coda_df <- coda_sample %>% 
+ce_df <- ce_coda_sample %>% 
   coda_sample_2_df %>% 
   sample_frac(1L) # randomly scramble chain order
 
-coda_df %>%
-  ggplot(aes(x=diff.QALYs, y=diff.cost, col=chain)) + geom_point(size=0.5, alpha=0.5)
+XLIM = c(0, 7e-4)     # use same limits as chapter 3
+YLIM = c(-75, 50)
+LAMBDAS = 10000*(1:3)
+ce_df %>%
+  filter(chain == 1) %>%  # to compare to Ch3, which had only one chain
+  ggplot(aes(x=diff.QALYs, y=diff.cost, col=chain)) + 
+  geom_point(size=0.5, alpha=0.1) +
+  geom_abline(slope=0, intercept=0, linetype='solid') +
+  geom_abline(slope=LAMBDAS, intercept=0, linetype='dotted') +
+  theme(legend.position="none") +
+  labs(x = "Incremental QALYs", y = "Incremental costs", title="Cost-effectiveness plane for Caesarian section example with meta-analysis") + 
+  coord_cartesian(xlim=XLIM, ylim=YLIM) + 
+  annotate("text", x = XLIM[2], y = LAMBDAS * XLIM[2], 
+           size=3, hjust=0.8, vjust=-0.25,
+           label = paste("lambda ==", LAMBDAS), parse=TRUE)
+
+ggsave("ce_scatterplot_ch7.pdf")  # compare plot to Ch.3.
 
 ```
 
+### Cost-effectiveness
 
-### ProbCU vs Rc1
+```{r economic_results}
+# inb_vars <- c("INB", "ProbCE")
+inb_vars <- c("INB.QALYs", "ProbCU")
+
+inb_df <- coda.samples(mad_results$model, variable.names = inb_vars, 
+    n.iter = 10000) %>% 
+  coda_sample_2_df %>%
+  group_by(chain) %>%
+  mutate(iteration=row_number()) %>%
+  ungroup() %>%
+  as.data.frame
+
+inb_df_long <- inb_df %>% 
+  pivot_longer(
+    cols=1:42,
+    names_to=c("metric", "k"),
+    names_pattern="(INB.QALYs|ProbCU)\\[(\\d+)\\]",
+    values_to="value"
+  ) %>%
+  mutate(k=as.integer(k), lambda=2000*(k-1))
+```
+
+### Cost-effectiveness acceptability curve for Caesarian section example.
+
+Figure 3.5 [also 3.6(c)]. WTP = "Willingness To Pay"
+
+```{r CE_acceptability_curve, message=FALSE}
+
+inb_df_long %>%
+  group_by(metric, lambda) %>%
+  filter(metric=="ProbCU") %>%
+  summarize(P_CU=mean(value)) %>% 
+  ggplot(aes(x=lambda, y=P_CU, group=metric)) + geom_line() + 
+    ylim(0,1) + 
+    ylab("Probability cost effective (for utility)") + 
+    xlab("Lambda, WTP per additional QALY") +
+    ggtitle("Cost-effectiveness acceptability curve")
+  
+
+```
+
+### Expected net benefit (INB) and 95% interval for a range of lambda values.
+
+Figure 3.6(b): Expected incremental net benefit and 95% interval for a range of lambda.
+
+```{r expected_INB}
+
+ # quantile(probs = c(2.5, 50, 97.5)/100)
+inb_df_long %>%
+  group_by(metric, lambda) %>%
+  filter(metric=="INB.QALYs") %>%
+  summarize(
+    mean_INB=mean(value),
+    lo_end=quantile(value, probs=0.025),
+    hi_end=quantile(value, probs=0.975)) %>% 
+  ggplot(aes(x=lambda, group=metric)) + 
+    geom_line(aes(y=mean_INB)) + 
+    geom_line(aes(y=lo_end), linetype="dashed") + 
+    geom_line(aes(y=hi_end), linetype="dashed")
+
+```
+
+<h1><font color="red"> Finish these </font></h1>
+### ScatterPlot of ProbCU vs Rc1
+### Summary stats: ProbCU
 
 ```{r ProbCU_vs_Rc1}
 
 # This makes 21 ProbCU columns and 21 Rc1 columns
-coda_df <- coda.samples(
-  results$model, 
+mad_coda_df <- coda.samples(
+  mad_results$model, 
   variable.names = c("ProbCU", "Rc1"),
   n.iter = 10000) %>% 
   coda_sample_2_df
 
 library(tidyr)
 
-probcu_df <- coda_df[,1:21] %>% 
+mad_probcu_df <- mad_coda_df[,1:21] %>% 
   mutate(row_num = row_number()) %>%
   pivot_longer(
-    cols=names(coda_df)[1:21], # ProbCU[1]:ProbCU[21],
+    cols=names(mad_coda_df)[1:21], # ProbCU[1]:ProbCU[21],
     names_to = c("id"),
     names_pattern = "ProbCU\\[(.+)\\]",
     values_to = "ProbCU"
   )
 
 
-rc1_df <- coda_df[,22:42] %>% 
+mad_rc1_df <- mad_coda_df[,22:42] %>% 
   mutate(row_num = row_number()) %>%
   pivot_longer(
-    cols=names(coda_df)[22:42],
+    cols=names(mad_coda_df)[22:42],
     names_to = c("id"),
     names_pattern = "Rc1\\[(.+)\\]",
     values_to = "Rc1"
   )
 
-probcu_rc1_df <- merge(probcu_df, rc1_df)
+mad_probcu_rc1_df <- merge(mad_probcu_df, mad_rc1_df)
 
-probcu_rc1_df %>% 
+mad_probcu_rc1_df %>% 
   mutate(ProbCU=factor(ProbCU)) %>%
   ggplot(aes(x=`ProbCU`, y=`Rc1`)) + geom_violin()
 
@@ -325,13 +400,9 @@ probcu_rc1_df %>%
 
 
 
-```{r attempted_summary_plots}
+```{r summary_plots}
 
-with(results_summary[1:21,], {
-  plot(mean, sd, type='l')
-})
-
-ProbCU <- results_summary[1:21,]
+ProbCU <- mad_results_summary[1:21,]
 with(ProbCU, {
   plot(mean, type='b', ylim=c(0,1))
 })
@@ -388,7 +459,7 @@ This code is for the NI Meta-Analysis that goes with Exercise 7.1a.
 
 ```{r meta_analysis_odc}
 
-model_code <- "model { 
+meta_analysis_model_code <- "model { 
 
   # META-ANALYSIS OF EFFECTIVENESS - ODDS RATIO (OR)
 
@@ -427,18 +498,18 @@ initial_values <- list(
   list(tau=1, d=0, mu=c(0,0,0,0,0), delta=c(0,0,0,0,0))
 )
 
-results <- jags(data = data,
+meta_analysis_results <- jags(data = data,
             inits = initial_values,
             parameters.to.save = c("d", "tau", "or"),
-            model.file = model_code,
+            model.file = meta_analysis_model_code,
             n.chains = length(initial_values),
             n.adapt = 100,
             n.iter = 50000,
             n.burnin = 20000)
 
-summary(results)
+summary(meta_analysis_results)
 
-plot(results)
+plot(meta_analysis_results)
 
 ```
 
