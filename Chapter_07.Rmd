@@ -288,7 +288,7 @@ ce_df %>%
            size=3, hjust=0.8, vjust=-0.25,
            label = paste("lambda ==", LAMBDAS), parse=TRUE)
 
-ggsave("ce_scatterplot_ch7.pdf")  # compare plot to Ch.3.
+ggsave("ce_scatterplot_ch7.png")  # compare plot to Ch.3.
 
 ```
 

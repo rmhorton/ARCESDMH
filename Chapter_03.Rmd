@@ -405,9 +405,9 @@ ce_df %>%
            size=3, hjust=0.8, vjust=-0.25,
            label = paste("lambda ==", LAMBDAS), parse=TRUE)
 
-# save plot and data to compare to Ch. 7
-ggsave("ce_scatterplot_ch3.pdf")
-write.csv(ce_df, "ce_data_Ch3.csv")
+# save plot to compare to Ch. 7
+ggsave("ce_scatterplot_ch3.png")
+
 ```
 
 
