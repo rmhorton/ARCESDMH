@@ -4,13 +4,13 @@ This is a collection of RMarkdown documents that run the original WinBUGs code f
 
 STATUS: The following chapters contain code examples that are not yet working in JAGS:
 
-* Chapter_04: Attempt to redefine node
 * Chapter_10: Attempt to redefine node; Invalid parent values
 * Chapter_11: Attempt to redefine node
 
 
 Code that needed to be tweaked to run in JAGS:
 
+* Chapter_04: There were 'Attempt to redefine node' errors in a couple of models. I moved the offending lines into data blocks, as recommended on [stackoverflow](https://stackoverflow.com/questions/78502051/how-to-convert-winbugs-code-into-jags-r-code).
 * Chapter_09: `rank` function; multi-dimensional data reformatted as list of matrixes.
 * Chapter 12: `ranked` function.
 
