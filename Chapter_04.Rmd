@@ -5,11 +5,13 @@ date: "2025-02-26"
 output: html_document
 ---
 
+Models `Cholesterol_prior_sens` and `asprin_logistic_random_1_priors_sensitivity` originally failed with `Attempt to redefine node` errors. I got them to run by moving the troublesome lines to data blocks. These chunks are marked with `eval=TRUE`.
+
 # TO DO: 
-* Models `Cholesterol_prior_sens` and `asprin_logistic_random_1_priors_sensitivity` fail with `Attempt to redefine node` errors. These chunks are set to `eval=FALSE`.
+* Check the results of the modified models against WinBUGS.
 * Describe the point of each model.
 * Be sure appropriate outputs are summarized or plotted. What other plots are relevant?
-* Clean up code: re-use datasets as appropriate, smarter table loading (compute k from the length of the dataframe; use this value to generate initial values), ... 
+* Clean up R code: re-use datasets as appropriate, smarter table loading (compute k from the length of the dataframe; use this value to generate initial values), etc. 
 
 
 
@@ -243,18 +245,19 @@ plot(results)
 
 ## `asprin_logistic_random_1_priors_sensitivity`
 
+
 ```
 RUNTIME ERROR:
 Compilation error on line 13.
 Attempt to redefine node rBx[1,1]
 ```
 
-```{r asprin_logistic_random_1_priors_sensitivity, eval=FALSE}
+I moved the offending lines into a data block, as recommended on [stackoverflow](https://stackoverflow.com/questions/78502051/how-to-convert-winbugs-code-into-jags-r-code).
 
+Original WinBUGS code:
 
-model_code <- "
-model
-	{
+```
+model {
 	
   ## replicating the data 2 times to fit to 3 models in total where j indexes alternative prior distributions
   
@@ -296,7 +299,61 @@ model
   tau.sq[3] <- tau[3]*tau[3]
   prec[3] <- 1/tau.sq[3]
 	
-	}
+}
+```
+
+```{r asprin_logistic_random_1_priors_sensitivity, eval=TRUE}
+
+model_code <- "
+
+data {
+  for (j in 1:3) {
+    for( i in 1 : Nstud ) {
+      rAx[j,i] <- rA[i]
+      rBx[j,i] <- rB[i]
+    }
+  }
+}
+
+model{
+	
+  ## replicating the data 2 times to fit to 3 models in total where j indexes alternative prior distributions
+  
+  for (j in 1:3) {
+    for( i in 1 : Nstud ) {
+      rAx[j,i] ~ dbin(pA[j,i], nA[i])
+      # rAx[j,i] <- rA[i]
+      rBx[j,i] ~ dbin(pB[j,i], nB[i])
+      # rBx[j,i] <- rB[i]
+      logit(pA[j,i]) <- mu[j,i]
+      logit(pB[j,i]) <- mu[j,i] + delta[j,i]
+      mu[j,i] ~  dnorm(0.0,1.0E-5)
+      delta[j,i] ~ dnorm(d[j], prec[j])
+    }
+  }
+  
+  for (j in 1:3){
+    OR[j] <- exp(d[j])
+    d[j] ~ dnorm(0.0,1.0E-6)
+    m[j]~dnorm(0.0,1.0E-6)
+  }
+
+	
+  # Setting three different priors for the between study variance
+  
+  prec[1] <- 1/tau.sq[1]
+  tau.sq[1] <- tau[1]*tau[1]
+  tau[1] ~ dnorm(0,1.0E-6)I(0,)
+  
+  prec[2] ~ dgamma(0.001,0.001)
+  tau.sq[2] <- 1/prec[2]
+  tau[2] <- sqrt(tau.sq[2])
+  
+  tau[3] ~ dunif(0,10)
+  tau.sq[3] <- tau[3]*tau[3]
+  prec[3] <- 1/tau.sq[3]
+	
+}
 " %>% textConnection
 
 # DATA
@@ -329,13 +386,12 @@ initial_values <- list(
 results <- jags(
   data = data,
   inits = initial_values,
-  parameters.to.save = c("OR", "d", "delta", "tau.sq", "rAx"),
+  parameters.to.save = c("OR", "d"),
   model.file = model_code,
   n.chains = length(initial_values),
   n.adapt = 100,
   n.iter = 50000,
-  n.burnin = 20000,
-  n.thin = 2
+  n.burnin = 20000
 )
 
 summary(results)
@@ -353,8 +409,7 @@ plot(results)
 Error parsing model file:
 syntax error on line 5 near "var"
 ```
-
-Maybe `var` is a reserved word or something? I changed it to `V` (as in the next model), which seems to work.
+I'm not sure why this was in the Supplemental Materials. It seems to be exactly the same as `Cholesterol_fixed.txt` below (Model 4.1 in the Exercises), except it uses the name 'var' instead of 'V'. It turns out that 'var' is problematic in JAGS; maybe it is a reserved word or something? I changed it to `V` (as in `Cholesterol_fixed.txt`), which seems to work.
 
 ```{r chol_model.txt}
 
@@ -778,8 +833,9 @@ Compilation error on line 14.
 Attempt to redefine node rBx[1,1]
 ```
 
-```{r Cholesterol_prior_sens, eval=FALSE}
-model_code <- "
+Original WinBUGS code:
+
+```
 model
 {
 	
@@ -794,6 +850,66 @@ model
       rAx[j,i] <- rA[i]
       rBx[j,i] ~ dbin(pB[j,i], nB[i])
       rBx[j,i] <- rB[i]
+      logit(pA[j,i]) <- mu[j,i]
+      logit(pB[j,i]) <- mu[j,i] + delta[j,i]
+      mu[j,i] ~ dnorm(0.0,1.0E-5)
+      delta[j,i] ~ dnorm(d[j], prec[j])
+    }
+  }
+
+  for (j in 1:3)
+  {
+    OR[j] <- exp(d[j])
+    d[j] ~ dnorm(0.0,1.0E-6)
+    m[j] ~ dnorm(0.0,1.0E-6)
+  }
+
+	
+  # Setting three different priors for the between study variance
+  
+  prec[1] <-1/tau.sq[1]
+  tau.sq[1] <-tau[1]*tau[1]
+  tau[1] ~ dnorm(0,1.0E-6)I(0,)
+  
+  prec[2] ~ dgamma(0.001,0.001)
+  tau.sq[2] <- 1/prec[2]
+  tau[2] <- sqrt(tau.sq[2])
+  
+  tau[3] ~ dunif(0,50)
+  tau.sq[3] <- tau[3]*tau[3]
+  prec[3] <- 1/tau.sq[3]
+	
+}
+```
+
+```{r Cholesterol_prior_sens, eval=TRUE}
+model_code <- "
+data{
+  for (j in 1:3)
+  {
+    for( i in 1 : k )
+    {
+      rAx[j,i] <- rA[i]
+      rBx[j,i] <- rB[i]
+    }
+  }
+
+}
+
+model
+{
+	
+  ## replicating the data 2 times to fit to 3 models in total where j indexes alternative prior distributions
+
+  for (j in 1:3)
+  {
+     
+    for( i in 1 : k )
+    {
+      rAx[j,i] ~ dbin(pA[j,i], nA[i])
+      # rAx[j,i] <- rA[i]   # !!! Attempt to redefine node
+      rBx[j,i] ~ dbin(pB[j,i], nB[i])
+      # rBx[j,i] <- rB[i]   # !!! Attempt to redefine node
       logit(pA[j,i]) <- mu[j,i]
       logit(pB[j,i]) <- mu[j,i] + delta[j,i]
       mu[j,i] ~ dnorm(0.0,1.0E-5)
@@ -891,7 +1007,7 @@ initial_values = list(
 results <- jags(
   data = data,
   inits = initial_values,
-  parameters.to.save = c("deviance", "theta"),
+  parameters.to.save = c("OR", "d", "theta"),
   model.file = model_code,
   n.chains = length(initial_values),
   n.adapt = 100,
