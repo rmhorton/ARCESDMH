@@ -358,13 +358,6 @@ synthesis</h1>
 </div>
 
 
-<font color="#FF0000">
-<pre>
-
-NOTE: Only the second of the three models from this chapter (&#39;HRT_bias_allowance&#39;) currently runs in JAGS.
-
-</pre>
-<p><font></p>
 <pre class="r"><code>library(&#39;rjags&#39;)
 library(&#39;coda&#39;)
 library(&#39;jagshelper&#39;)
@@ -378,54 +371,94 @@ library(&#39;dplyr&#39;)</code></pre>
 <p>Prior based on distribution of pooled effect (Lancet 1997)</p>
 <p>OR 1.31 &amp; 95%CI: 1.16 to 1.46 =&gt; logOR=0.27 &amp; 95% CI:
 0.144 to 0.382 =&gt; SD(logOR) = 0.061 =&gt; precision = 271.3</p>
-<font color="#FF0000">
-<pre>
-Error in rjags::jags.model(file = model.file, data = data, inits = inits,  : 
+<p>The original WinBUGS code gave this error in JAGS:</p>
+<pre><code>Error in rjags::jags.model(file = model.file, data = data, inits = inits,  : 
   RUNTIME ERROR:
 Compilation error on line 17.
-Attempt to redefine node rt[1,1]
-</pre>
-<p></font></p>
+Attempt to redefine node rt[1,1]</code></pre>
+<p>Here is a copy of the WinBUGS version:</p>
+<pre><code>model  {
+  # Create multiple datasets
+  for (i in 1:19){
+    for(k in 1:12){   
+      rc[i,k] &lt;- rc.dat[i]
+      rt[i,k] &lt;- rt.dat[i]
+      nc[i,k] &lt;- nc.dat[i]
+      nt[i,k] &lt;- nt.dat[i]
+    }
+  }
+  
+  # Estimate meta-analysis model for each value of alpha
+  for (k in 1: 12) {
+    for( i in 1 : 19 ) {
+      rc[i,k] ~ dbin(pc[i,k], nc[i,k])
+      rt[i,k] ~ dbin(pt[i,k], nt[i,k])
+      logit(pc[i,k]) &lt;- mu[i,k]
+      logit(pt[i,k]) &lt;- mu[i,k] + delta[i,k]+ beta*(duration[i]-5)
+      mu[i,k] ~ dnorm(0.0,1.0E-6)
+      delta[i,k] ~ dnorm(d[k], prec[k])
+    }                   
+    d[k] ~ dnorm(0.270, prec.d[k])  # Use mean of meta-analysis of obs data
+    OR.5years[k]&lt;- exp(d[k])
+    prob.OR1[k] &lt;- step(d[k])  # probability that OR&gt;1, i.e. increase in risk of breast ca  
+    prec[k] &lt;- 1/tau.sq[k]
+    tau.sq[k] &lt;- tau[k]*tau[k]
+    tau[k] ~ dunif(0,5) 
+  }
+
+  # Calculate precision  of prior (from Lancet meta-analysis of observational studies) 
+  # downweighted using alpha
+
+  for (k in 1:12) {
+    prec.d[k] &lt;- alpha[k]*271.3
+  }
+  beta ~ dnorm(0.0,1.0E-6)
+}
+</code></pre>
 <pre class="r"><code># Model
 
 model_code &lt;- &quot;
-model  {
-# Create multiple datasets
-for (i in 1:19){
-            for(k in 1:12){   
-                rc[i,k] &lt;- rc.dat[i]
-                rt[i,k] &lt;- rt.dat[i]
-                nc[i,k] &lt;- nc.dat[i]
-                nt[i,k] &lt;- nt.dat[i]
-                    }
-                }
 
-# Estimate meta-analysis model for each value of alpha
-for (k in 1: 12) {
-    for( i in 1 : 19 ) {
-        rc[i,k] ~ dbin(pc[i,k], nc[i,k])
-        rt[i,k] ~ dbin(pt[i,k], nt[i,k])
-        logit(pc[i,k]) &lt;- mu[i,k]
-        logit(pt[i,k]) &lt;- mu[i,k] + delta[i,k]+ beta*(duration[i]-5)
-        mu[i,k] ~ dnorm(0.0,1.0E-6)
-        delta[i,k] ~ dnorm(d[k], prec[k])
-            }                   
-        d[k] ~ dnorm(0.270, prec.d[k])  # Use mean of meta-analysis of obs data
-        OR.5years[k]&lt;- exp(d[k])
-        prob.OR1[k] &lt;- step(d[k])  # probability that OR&gt;1, i.e. increase in risk of breast ca  
-        prec[k] &lt;- 1/tau.sq[k]
-        tau.sq[k] &lt;- tau[k]*tau[k]
-        tau[k] ~ dunif(0,5) 
-            }
-
-# Calculate precision  of prior (from Lancet meta-analysis of observational studies) 
-# downweighted using alpha
-
-for (k in 1:12) {
-        prec.d[k] &lt;- alpha[k]*271.3
-   }
-         beta ~ dnorm(0.0,1.0E-6)
+data {
+  # Create multiple datasets
+  for (i in 1:19){
+    for(k in 1:12){   
+      rc[i,k] &lt;- rc.dat[i]
+      rt[i,k] &lt;- rt.dat[i]
+      nc[i,k] &lt;- nc.dat[i]
+      nt[i,k] &lt;- nt.dat[i]
     }
+  }
+}
+
+model  {
+  
+  # Estimate meta-analysis model for each value of alpha
+  for (k in 1: 12) {
+    for( i in 1 : 19 ) {
+      rc[i,k] ~ dbin(pc[i,k], nc[i,k])
+      rt[i,k] ~ dbin(pt[i,k], nt[i,k])
+      logit(pc[i,k]) &lt;- mu[i,k]
+      logit(pt[i,k]) &lt;- mu[i,k] + delta[i,k]+ beta*(duration[i]-5)
+      mu[i,k] ~ dnorm(0.0,1.0E-6)
+      delta[i,k] ~ dnorm(d[k], prec[k])
+    }                   
+    d[k] ~ dnorm(0.270, prec.d[k])  # Use mean of meta-analysis of obs data
+    OR.5years[k]&lt;- exp(d[k])
+    prob.OR1[k] &lt;- step(d[k])  # probability that OR&gt;1, i.e. increase in risk of breast ca  
+    prec[k] &lt;- 1/tau.sq[k]
+    tau.sq[k] &lt;- tau[k]*tau[k]
+    tau[k] ~ dunif(0,5) 
+  }
+
+  # Calculate precision  of prior (from Lancet meta-analysis of observational studies) 
+  # downweighted using alpha
+
+  for (k in 1:12) {
+    prec.d[k] &lt;- alpha[k]*271.3
+  }
+  beta ~ dnorm(0.0,1.0E-6)
+}
 &quot; %&gt;% textConnection
 
 
@@ -502,9 +535,93 @@ results &lt;- jags(data = data,
             n.adapt = 100,
             n.iter = 50000,
             n.burnin = 20000,
-            n.thin = 2)
-
-summary(results)</code></pre>
+            n.thin = 2)</code></pre>
+<pre><code>## 
+## Processing function input....... 
+## 
+## Done. 
+##  
+## Compiling data graph
+##    Resolving undeclared variables
+##    Allocating nodes
+##    Initializing
+##    Reading data back into data table
+## Compiling model graph
+##    Resolving undeclared variables
+##    Allocating nodes
+## Graph information:
+##    Observed stochastic nodes: 456
+##    Unobserved stochastic nodes: 481
+##    Total graph size: 2270
+## 
+## Initializing model
+## 
+## Adaptive phase, 100 iterations x 1 chains 
+## If no progress bar appears JAGS has decided not to adapt 
+##  
+## 
+##  Burn-in phase, 20000 iterations x 1 chains 
+##  
+## 
+## Sampling from joint posterior, 30000 iterations x 1 chains 
+##  
+## 
+## Calculating statistics....... 
+## 
+## Done.</code></pre>
+<pre class="r"><code>summary(results)</code></pre>
+<pre><code>##                       mean           sd         2.5%          25%          50%
+## OR.5years[1]     0.8247279  0.328282948    0.3323304    0.6064720    0.7867729
+## OR.5years[2]     0.8321177  0.343279334    0.3421693    0.6154282    0.7844790
+## OR.5years[3]     1.1743818  0.207602923    0.8406373    1.0281315    1.1451571
+## OR.5years[4]     1.2317984  0.164556622    0.9426387    1.1141136    1.2207030
+## OR.5years[5]     1.2533265  0.132691322    1.0143756    1.1593090    1.2450122
+## OR.5years[6]     1.2625570  0.117732145    1.0505607    1.1805400    1.2568573
+## OR.5years[7]     1.2759845  0.106901323    1.0786828    1.2006480    1.2724353
+## OR.5years[8]     1.2838306  0.099221367    1.1017485    1.2149104    1.2805530
+## OR.5years[9]     1.2849672  0.093045233    1.1134466    1.2202445    1.2813063
+## OR.5years[10]    1.2901243  0.087479195    1.1288807    1.2293334    1.2858316
+## OR.5years[11]    1.2898600  0.081468389    1.1350829    1.2337206    1.2880615
+## OR.5years[12]    1.2925651  0.078407470    1.1463202    1.2380817    1.2900567
+## prob.OR1[1]      0.2354667  0.424304275    0.0000000    0.0000000    0.0000000
+## prob.OR1[2]      0.2329333  0.422714216    0.0000000    0.0000000    0.0000000
+## prob.OR1[3]      0.8040667  0.396930681    0.0000000    1.0000000    1.0000000
+## prob.OR1[4]      0.9332667  0.249567922    0.0000000    1.0000000    1.0000000
+## prob.OR1[5]      0.9815333  0.134636018    1.0000000    1.0000000    1.0000000
+## prob.OR1[6]      0.9937333  0.078916480    1.0000000    1.0000000    1.0000000
+## prob.OR1[7]      0.9976667  0.048249809    1.0000000    1.0000000    1.0000000
+## prob.OR1[8]      0.9992667  0.027071099    1.0000000    1.0000000    1.0000000
+## prob.OR1[9]      1.0000000  0.000000000    1.0000000    1.0000000    1.0000000
+## prob.OR1[10]     0.9997333  0.016328298    1.0000000    1.0000000    1.0000000
+## prob.OR1[11]     0.9999333  0.008164966    1.0000000    1.0000000    1.0000000
+## prob.OR1[12]     1.0000000  0.000000000    1.0000000    1.0000000    1.0000000
+## deviance      1436.4973888 31.211029195 1380.5763081 1414.4815015 1434.6507134
+##                        75%       97.5% Rhat n.eff overlap0 f
+## OR.5years[1]     0.9871530    1.586394   NA     1        0 1
+## OR.5years[2]     0.9804806    1.596127   NA     1        0 1
+## OR.5years[3]     1.2959043    1.650829   NA     1        0 1
+## OR.5years[4]     1.3368803    1.581621   NA     1        0 1
+## OR.5years[5]     1.3397189    1.530232   NA     1        0 1
+## OR.5years[6]     1.3363073    1.513524   NA     1        0 1
+## OR.5years[7]     1.3459998    1.494395   NA     1        0 1
+## OR.5years[8]     1.3485648    1.486220   NA     1        0 1
+## OR.5years[9]     1.3452475    1.478228   NA     1        0 1
+## OR.5years[10]    1.3469572    1.471460   NA     1        0 1
+## OR.5years[11]    1.3432790    1.456693   NA     1        0 1
+## OR.5years[12]    1.3446936    1.452207   NA     1        0 1
+## prob.OR1[1]      0.0000000    1.000000   NA     1        1 1
+## prob.OR1[2]      0.0000000    1.000000   NA     1        1 1
+## prob.OR1[3]      1.0000000    1.000000   NA     1        1 1
+## prob.OR1[4]      1.0000000    1.000000   NA     1        1 1
+## prob.OR1[5]      1.0000000    1.000000   NA     1        0 1
+## prob.OR1[6]      1.0000000    1.000000   NA     1        0 1
+## prob.OR1[7]      1.0000000    1.000000   NA     1        0 1
+## prob.OR1[8]      1.0000000    1.000000   NA     1        0 1
+## prob.OR1[9]      1.0000000    1.000000   NA     1        0 1
+## prob.OR1[10]     1.0000000    1.000000   NA     1        0 1
+## prob.OR1[11]     1.0000000    1.000000   NA     1        0 1
+## prob.OR1[12]     1.0000000    1.000000   NA     1        0 1
+## deviance      1456.7482973 1501.510018   NA     1        0 1</code></pre>
 <pre><code>WinBUGS results
 
      node    mean    sd  MC error   2.5%    median  97.5%   start   sample
@@ -546,40 +663,41 @@ studies comparing RCTs and non-randomised studies</p>
 <pre class="r"><code># Model
 
 model_code &lt;- &quot;model {
-       for(j in 1 : Nstud) {
-        rc[j] ~ dbin(pc[j], nc[j])
-        rt[j] ~ dbin(pt[j], nt[j])
-        logit(pc[j]) &lt;- mu[j]
-        logit(pt[j]) &lt;- mu[j] + delta[j] + beta*(duration[j]-5)
-        mu[j] ~ dnorm(0.0,1.0E-5)
-        delta[j] ~ dnorm(d, prec)           
-                }
+  for(j in 1 : Nstud) {
+    rc[j] ~ dbin(pc[j], nc[j])
+    rt[j] ~ dbin(pt[j], nt[j])
+    logit(pc[j]) &lt;- mu[j]
+    logit(pt[j]) &lt;- mu[j] + delta[j] + beta*(duration[j]-5)
+    mu[j] ~ dnorm(0.0,1.0E-5)
+    delta[j] ~ dnorm(d, prec)           
+  }
 
-# Meta-meta-analysis of 19 meta-analyses comparing RCTs and 
-# NRCTs (Ioannidis et al 2001)
+  # Meta-meta-analysis of 19 meta-analyses comparing RCTs and 
+  # NRCTs (Ioannidis et al 2001)
+  
+  for( j in 1 : Nma) {
+    logRRR [j] ~ dnorm(d.bias, prec.bias)
+  }
 
-       for( j in 1 : Nma) {
-      logRRR [j] ~ dnorm(d.bias, prec.bias)
-                    }
-# Priors
-
-        prec.bias &lt;- 1/tau.sq.bias
-        tau.sq.bias &lt;- tau.bias*tau.bias
-       
-       d ~ dnorm(0.27, prec.d)
-       prec.d &lt;- 1/tau.sq.d
-       tau.sq.d &lt;- 0.0037 + tau.sq.bias
-       
-    prec &lt;- 1/tau.sq
-    tau.sq &lt;- tau*tau
-            
-    tau ~ dunif(0,5)
-        tau.bias ~ dunif(0,5)
-        d.bias ~ dnorm(0.0,1.0E-5)
-        beta ~ dnorm(0.0,1.0E-5)
-        OR&lt;- exp(d)
-        prob.OR1 &lt;- step(d)
-    }
+  # Priors
+  
+  prec.bias &lt;- 1/tau.sq.bias
+  tau.sq.bias &lt;- tau.bias*tau.bias
+  
+  d ~ dnorm(0.27, prec.d)
+  prec.d &lt;- 1/tau.sq.d
+  tau.sq.d &lt;- 0.0037 + tau.sq.bias
+  
+  prec &lt;- 1/tau.sq
+  tau.sq &lt;- tau*tau
+  
+  tau ~ dunif(0,5)
+  tau.bias ~ dunif(0,5)
+  d.bias ~ dnorm(0.0,1.0E-5)
+  beta ~ dnorm(0.0,1.0E-5)
+  OR&lt;- exp(d)
+  prob.OR1 &lt;- step(d)
+}
     
 &quot; %&gt;% textConnection
 
@@ -652,22 +770,22 @@ results &lt;- jags(data = data,
 ## 
 ## Done.</code></pre>
 <pre class="r"><code>summary(results)</code></pre>
-<pre><code>##                 mean         sd         2.5%         25%         50%
-## OR         0.8906596 0.34448656   0.39775187   0.6548944   0.8381578
-## beta      -0.1096685 0.18356590  -0.45899131  -0.2262874  -0.1090887
-## d         -0.1831250 0.36626739  -0.92192691  -0.4232812  -0.1765489
-## prob.OR1   0.3011333 0.45876582   0.00000000   0.0000000   0.0000000
-## tau        0.8856686 0.68134656   0.07199518   0.4234765   0.7292887
-## tau.bias   0.5374765 0.09939503   0.38500735   0.4665612   0.5234565
-## deviance 147.9955435 8.24499388 131.56542425 142.3854763 148.0634174
+<pre><code>##                 mean        sd         2.5%         25%         50%
+## OR         0.9857515 0.4536219   0.41129325   0.6982934   0.9016744
+## beta      -0.1026367 0.2319490  -0.59474933  -0.2263392  -0.1021416
+## d         -0.0996853 0.4049242  -0.88844881  -0.3591159  -0.1035018
+## prob.OR1   0.3852667 0.4866745   0.00000000   0.0000000   0.0000000
+## tau        1.4088970 1.0901351   0.06623964   0.5849936   1.1343040
+## tau.bias   0.5347383 0.0985898   0.38444667   0.4665472   0.5209023
+## deviance 145.3441931 9.4860027 126.69060616 139.0061652 145.3624753
 ##                   75%       97.5% Rhat n.eff overlap0         f
-## OR       1.053063e+00   1.7304651   NA     1        0 1.0000000
-## beta     3.627515e-04   0.2589279   NA     1        1 0.7494000
-## d        5.170328e-02   0.5483902   NA     1        1 0.6988667
-## prob.OR1 1.000000e+00   1.0000000   NA     1        1 1.0000000
-## tau      1.158817e+00   2.7605917   NA     1        0 1.0000000
-## tau.bias 5.919282e-01   0.7716880   NA     1        0 1.0000000
-## deviance 1.537461e+02 164.0255395   NA     1        0 1.0000000</code></pre>
+## OR         1.14454725   2.1456333   NA     1        0 1.0000000
+## beta       0.02350291   0.3693772   NA     1        1 0.7106000
+## d          0.13500914   0.7634348   NA     1        1 0.6147333
+## prob.OR1   1.00000000   1.0000000   NA     1        1 1.0000000
+## tau        1.95826813   4.2387548   NA     1        0 1.0000000
+## tau.bias   0.58624056   0.7716138   NA     1        0 1.0000000
+## deviance 151.61227697 163.8556828   NA     1        0 1.0000000</code></pre>
 <pre><code>WinBUGS results
  node    mean    sd  MC error   2.5%    median  97.5%   start   sample
     OR  0.8954  0.3737  0.01416 0.3843  0.8282  1.845   10001   10000
@@ -684,63 +802,116 @@ results &lt;- jags(data = data,
 Evidence Synthesis</p>
 <p>Following Prevost et al Stat Med 2000;19 &amp; Spiegelhalter et al
 (2003) Example 8.5</p>
-<font color="#FF0000">
-<pre>
-Error in rjags::jags.model(file = model.file, data = data, inits = inits,  : 
+<p>The WinBUGS code gave this error when I tried to run it in JAGS:</p>
+<pre><code>Error in rjags::jags.model(file = model.file, data = data, inits = inits,  : 
   RUNTIME ERROR:
 Compilation error on line 7.
-Attempt to redefine node logRR[1]
-</pre>
-<p></font></p>
+</code></pre>
+<p>Here is a copy of the WinBUGS version:</p>
+<pre><code>model {
+  for (j in 1:Nstud) {
+    logRR[j] &lt;- log(RR[j])
+    P[j]  &lt;- 1/(SE[j]*SE[j])
+    # Likelihood for within-type model
+    logRR[j] ~ dnorm(delta[j],P[j])
+    delta[j] ~ dnorm(phi[Type[j]],prec.stud[Type[j]])
+  }
+
+  # Likelihood for between-type model
+  for (i in 1:Ntype) {
+    phi[i] ~ dnorm(d,prec)
+    prec.stud[i] &lt;- 1/psi.sq[i]
+    psi.sq[i] &lt;- psi[i]*psi[i]
+    psi[i] ~ dnorm(0,8)I(0,)
+    
+    # Prior for psi is derived on basis that individual study effect is unlikely to 
+    # deviate from type effect by more than 4 times or less than 1/4.
+    # Therefore, upper 95% limit for psi = log(16)/(2*1.96) = 0.71.
+    # Half-Normal(0,0.35^2) prior distribution has this property.
+  
+  } 
+
+  # Priors
+       
+  d ~ dnorm(0,0.1)
+  
+  # Prior for d is derived on the basis that the overall effect is unlikely to 
+  # to exceed 500 in favour of either screening or control.
+  # Therefore, prior SD = log(500)/1.96 = 3.17 &amp; precision = 1/(3.17^2) = 0.1.
+  
+  prec &lt;- 1/tau.sq
+  tau.sq &lt;- tau*tau
+  tau ~ dnorm(0,30)I(0,)
+  
+  # Prior for tau is derived on the basis that an specific type effect is unlikely 
+  # to deviate from the overall pooled effect (d) by more than 2 or less than 1/2.
+  # Therefore, upper 95%  limit for tau = log(2)/(2*1.96) = 0.018.
+  # Half-Normal(0,0.18^2) prior distribution has this property.
+   
+
+  # Transformation to Relative Risk scale 
+  for (i in 1:Ntype) {
+    RR.type[i] &lt;- exp(phi[i])
+  }
+  RR.ov &lt;- exp(d)
+}</code></pre>
+<p>To run it in JAGS, I moved the offending lines to a data block:</p>
 <pre class="r"><code># Model
 
 model_code &lt;- &quot;
-model {
- for (j in 1:Nstud) {
-       logRR[j] &lt;- log(RR[j])
-       P[j]  &lt;- 1/(SE[j]*SE[j])
-# Likelihood for within-type model
-       logRR[j] ~ dnorm(delta[j],P[j])
-       delta[j] ~ dnorm(phi[Type[j]],prec.stud[Type[j]])
-       }
 
-# Likelihood for between-type model
-for (i in 1:Ntype) {
-       phi[i] ~ dnorm(d,prec)
-       prec.stud[i] &lt;- 1/psi.sq[i]
-       psi.sq[i] &lt;- psi[i]*psi[i]
-       psi[i] ~ dnorm(0,8)I(0,)
-
-# Prior for psi is derived on basis that individual study effect is unlikely to 
-# deviate from type effect by more than 4 times or less than 1/4.
-# Therefore, upper 95% limit for psi = log(16)/(2*1.96) = 0.71.
-# Half-Normal(0,0.35^2) prior distribution has this property.
-
-} 
-
-# Priors
-     
-d ~ dnorm(0,0.1)
-
-# Prior for d is derived on the basis that the overall effect is unlikely to 
-# to exceed 500 in favour of either screening or control.
-# Therefore, prior SD = log(500)/1.96 = 3.17 &amp; precision = 1/(3.17^2) = 0.1.
-
-prec &lt;- 1/tau.sq
-tau.sq &lt;- tau*tau
-tau ~ dnorm(0,30)I(0,)
-
-# Prior for tau is derived on the basis that an specific type effect is unlikely 
-# to deviate from the overall pooled effect (d) by more than 2 or less than 1/2.
-# Therefore, upper 95%  limit for tau = log(2)/(2*1.96) = 0.018.
-# Half-Normal(0,0.18^2) prior distribution has this property.
- 
-
-# Transformation to Relative Risk scale 
-for (i in 1:Ntype) {
-RR.type[i] &lt;- exp(phi[i])
+data {
+  for (j in 1:Nstud) {
+    logRR[j] &lt;- log(RR[j])
+  }
 }
-RR.ov &lt;- exp(d)
+
+model {
+  for (j in 1:Nstud) {
+    # logRR[j] &lt;- log(RR[j])  # !!! moved to data block
+    P[j]  &lt;- 1/(SE[j]*SE[j])
+    # Likelihood for within-type model
+    logRR[j] ~ dnorm(delta[j],P[j])
+    delta[j] ~ dnorm(phi[Type[j]],prec.stud[Type[j]])
+  }
+
+  # Likelihood for between-type model
+  for (i in 1:Ntype) {
+    phi[i] ~ dnorm(d,prec)
+    prec.stud[i] &lt;- 1/psi.sq[i]
+    psi.sq[i] &lt;- psi[i]*psi[i]
+    psi[i] ~ dnorm(0,8)I(0,)
+    
+    # Prior for psi is derived on basis that individual study effect is unlikely to 
+    # deviate from type effect by more than 4 times or less than 1/4.
+    # Therefore, upper 95% limit for psi = log(16)/(2*1.96) = 0.71.
+    # Half-Normal(0,0.35^2) prior distribution has this property.
+  
+  } 
+
+  # Priors
+       
+  d ~ dnorm(0,0.1)
+  
+  # Prior for d is derived on the basis that the overall effect is unlikely to 
+  # to exceed 500 in favour of either screening or control.
+  # Therefore, prior SD = log(500)/1.96 = 3.17 &amp; precision = 1/(3.17^2) = 0.1.
+  
+  prec &lt;- 1/tau.sq
+  tau.sq &lt;- tau*tau
+  tau ~ dnorm(0,30)I(0,)
+  
+  # Prior for tau is derived on the basis that an specific type effect is unlikely 
+  # to deviate from the overall pooled effect (d) by more than 2 or less than 1/2.
+  # Therefore, upper 95%  limit for tau = log(2)/(2*1.96) = 0.018.
+  # Half-Normal(0,0.18^2) prior distribution has this property.
+   
+
+  # Transformation to Relative Risk scale 
+  for (i in 1:Ntype) {
+    RR.type[i] &lt;- exp(phi[i])
+  }
+  RR.ov &lt;- exp(d)
 }
 &quot; %&gt;% textConnection
 
@@ -778,9 +949,63 @@ results &lt;- jags(data = data,
             n.adapt = 100,
             n.iter = 50000,
             n.burnin = 20000,
-            n.thin = 2)
-
-summary(results)</code></pre>
+            n.thin = 2)</code></pre>
+<pre><code>## 
+## Processing function input....... 
+## 
+## Done. 
+##  
+## Compiling data graph
+##    Resolving undeclared variables
+##    Allocating nodes
+##    Initializing
+##    Reading data back into data table
+## Compiling model graph
+##    Resolving undeclared variables
+##    Allocating nodes
+## Graph information:
+##    Observed stochastic nodes: 10
+##    Unobserved stochastic nodes: 16
+##    Total graph size: 90
+## 
+## Initializing model
+## 
+## Adaptive phase, 100 iterations x 1 chains 
+## If no progress bar appears JAGS has decided not to adapt 
+##  
+## 
+##  Burn-in phase, 20000 iterations x 1 chains 
+##  
+## 
+## Sampling from joint posterior, 30000 iterations x 1 chains 
+##  
+## 
+## Calculating statistics....... 
+## 
+## Done.</code></pre>
+<pre class="r"><code>summary(results)</code></pre>
+<pre><code>##                  mean         sd          2.5%         25%         50%
+## RR.ov       0.6511660 0.11064578   0.438596359  0.58537368  0.64957178
+## RR.type[1]  0.6848327 0.06578705   0.563808945  0.64279156  0.68191732
+## RR.type[2]  0.6114937 0.10547070   0.401083472  0.54183784  0.61630278
+## d          -0.4433356 0.17070490  -0.824175748 -0.53550487 -0.43144194
+## phi[1]     -0.3831947 0.09626214  -0.573039835 -0.44193478 -0.38284686
+## phi[2]     -0.5075125 0.18015567  -0.913585716 -0.61278850 -0.48401691
+## psi[1]      0.1088081 0.09385290   0.003670617  0.03944685  0.08473482
+## psi[2]      0.4643909 0.16840412   0.178728647  0.34514768  0.44863336
+## tau         0.1462701 0.10614396   0.006800998  0.06201505  0.12607755
+## deviance   -5.0021818 4.76021477 -11.769759274 -8.48656595 -5.84908872
+##                   75%      97.5% Rhat n.eff overlap0         f
+## RR.ov       0.7088694  0.8775590   NA     1        0 1.0000000
+## RR.type[1]  0.7245994  0.8198962   NA     1        0 1.0000000
+## RR.type[2]  0.6815617  0.8170890   NA     1        0 1.0000000
+## d          -0.3440840 -0.1306111   NA     1        0 0.9918000
+## phi[1]     -0.3221364 -0.1985776   NA     1        0 0.9996000
+## phi[2]     -0.3833685 -0.2020073   NA     1        0 0.9991333
+## psi[1]      0.1507430  0.3499087   NA     1        0 1.0000000
+## psi[2]      0.5681321  0.8378679   NA     1        0 1.0000000
+## tau         0.2084733  0.3946686   NA     1        0 1.0000000
+## deviance   -2.4855267  6.5812676   NA     1        1 0.8598000</code></pre>
 <pre><code>Results from WinBUGS
     node     mean    sd  MC error   2.5%    median  97.5%   start   sample
     RR.ov   0.6518  0.1066  0.002882    0.4429  0.6503  0.8739  20001   10000

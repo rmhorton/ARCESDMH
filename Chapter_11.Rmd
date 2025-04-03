@@ -10,13 +10,6 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-
-<font color="#FF0000"><pre>
-
-NOTE: Only the second of the three models from this chapter ('HRT_bias_allowance') currently runs in JAGS.
-
-</pre><font>
-
 ```{r load_libraries, warning=FALSE, message=FALSE}
 library('rjags')
 library('coda')
@@ -42,55 +35,105 @@ Prior based on distribution of pooled effect (Lancet 1997)
   => SD(logOR) = 0.061 => precision = 271.3
 
 
-<font color="#FF0000"><pre>
+
+
+The original WinBUGS code gave this error in JAGS:
+
+```
 Error in rjags::jags.model(file = model.file, data = data, inits = inits,  : 
   RUNTIME ERROR:
 Compilation error on line 17.
 Attempt to redefine node rt[1,1]
-</pre></font>
+```
 
-```{r HRT_power_prior, eval=FALSE}
+Here is a copy of the WinBUGS version:
+```
+model  {
+  # Create multiple datasets
+  for (i in 1:19){
+    for(k in 1:12){   
+      rc[i,k] <- rc.dat[i]
+      rt[i,k] <- rt.dat[i]
+      nc[i,k] <- nc.dat[i]
+      nt[i,k] <- nt.dat[i]
+    }
+  }
+  
+  # Estimate meta-analysis model for each value of alpha
+  for (k in 1: 12) {
+    for( i in 1 : 19 ) {
+      rc[i,k] ~ dbin(pc[i,k], nc[i,k])
+      rt[i,k] ~ dbin(pt[i,k], nt[i,k])
+      logit(pc[i,k]) <- mu[i,k]
+      logit(pt[i,k]) <- mu[i,k] + delta[i,k]+ beta*(duration[i]-5)
+      mu[i,k] ~ dnorm(0.0,1.0E-6)
+      delta[i,k] ~ dnorm(d[k], prec[k])
+    }					
+    d[k] ~ dnorm(0.270, prec.d[k])  # Use mean of meta-analysis of obs data
+    OR.5years[k]<- exp(d[k])
+    prob.OR1[k] <- step(d[k])  # probability that OR>1, i.e. increase in risk of breast ca  
+    prec[k] <- 1/tau.sq[k]
+    tau.sq[k] <- tau[k]*tau[k]
+    tau[k] ~ dunif(0,5) 
+  }
+
+  # Calculate precision  of prior (from Lancet meta-analysis of observational studies) 
+  # downweighted using alpha
+
+  for (k in 1:12) {
+    prec.d[k] <- alpha[k]*271.3
+  }
+  beta ~ dnorm(0.0,1.0E-6)
+}
+
+```
+
+```{r HRT_power_prior, eval=TRUE}
 
 # Model
 
 model_code <- "
+
+data {
+  # Create multiple datasets
+  for (i in 1:19){
+    for(k in 1:12){   
+      rc[i,k] <- rc.dat[i]
+      rt[i,k] <- rt.dat[i]
+      nc[i,k] <- nc.dat[i]
+      nt[i,k] <- nt.dat[i]
+    }
+  }
+}
+
 model  {
-# Create multiple datasets
-for (i in 1:19){
-			for(k in 1:12){   
-				rc[i,k] <- rc.dat[i]
-				rt[i,k] <- rt.dat[i]
-				nc[i,k] <- nc.dat[i]
-				nt[i,k] <- nt.dat[i]
-					}
-				}
+  
+  # Estimate meta-analysis model for each value of alpha
+  for (k in 1: 12) {
+    for( i in 1 : 19 ) {
+      rc[i,k] ~ dbin(pc[i,k], nc[i,k])
+      rt[i,k] ~ dbin(pt[i,k], nt[i,k])
+      logit(pc[i,k]) <- mu[i,k]
+      logit(pt[i,k]) <- mu[i,k] + delta[i,k]+ beta*(duration[i]-5)
+      mu[i,k] ~ dnorm(0.0,1.0E-6)
+      delta[i,k] ~ dnorm(d[k], prec[k])
+    }					
+    d[k] ~ dnorm(0.270, prec.d[k])  # Use mean of meta-analysis of obs data
+    OR.5years[k]<- exp(d[k])
+    prob.OR1[k] <- step(d[k])  # probability that OR>1, i.e. increase in risk of breast ca  
+    prec[k] <- 1/tau.sq[k]
+    tau.sq[k] <- tau[k]*tau[k]
+    tau[k] ~ dunif(0,5) 
+  }
 
-# Estimate meta-analysis model for each value of alpha
-for (k in 1: 12) {
-	for( i in 1 : 19 ) {
-	    rc[i,k] ~ dbin(pc[i,k], nc[i,k])
-		rt[i,k] ~ dbin(pt[i,k], nt[i,k])
-		logit(pc[i,k]) <- mu[i,k]
-		logit(pt[i,k]) <- mu[i,k] + delta[i,k]+ beta*(duration[i]-5)
-		mu[i,k] ~ dnorm(0.0,1.0E-6)
-		delta[i,k] ~ dnorm(d[k], prec[k])
-			}					
-		d[k] ~ dnorm(0.270, prec.d[k])  # Use mean of meta-analysis of obs data
-	    OR.5years[k]<- exp(d[k])
-	    prob.OR1[k] <- step(d[k])  # probability that OR>1, i.e. increase in risk of breast ca  
-		prec[k] <- 1/tau.sq[k]
-		tau.sq[k] <- tau[k]*tau[k]
-		tau[k] ~ dunif(0,5) 
-			}
+  # Calculate precision  of prior (from Lancet meta-analysis of observational studies) 
+  # downweighted using alpha
 
-# Calculate precision  of prior (from Lancet meta-analysis of observational studies) 
-# downweighted using alpha
-
-for (k in 1:12) {
-		prec.d[k] <- alpha[k]*271.3
-   }
-		 beta ~ dnorm(0.0,1.0E-6)
-	}
+  for (k in 1:12) {
+    prec.d[k] <- alpha[k]*271.3
+  }
+  beta ~ dnorm(0.0,1.0E-6)
+}
 " %>% textConnection
 
 
@@ -226,40 +269,41 @@ studies comparing RCTs and non-randomised studies
 # Model
 
 model_code <- "model {
-	   for(j in 1 : Nstud) {
-	   	rc[j] ~ dbin(pc[j], nc[j])
-		rt[j] ~ dbin(pt[j], nt[j])
-		logit(pc[j]) <- mu[j]
-		logit(pt[j]) <- mu[j] + delta[j] + beta*(duration[j]-5)
-		mu[j] ~ dnorm(0.0,1.0E-5)
-		delta[j] ~ dnorm(d, prec)			
-	   			}
+  for(j in 1 : Nstud) {
+    rc[j] ~ dbin(pc[j], nc[j])
+    rt[j] ~ dbin(pt[j], nt[j])
+    logit(pc[j]) <- mu[j]
+    logit(pt[j]) <- mu[j] + delta[j] + beta*(duration[j]-5)
+    mu[j] ~ dnorm(0.0,1.0E-5)
+    delta[j] ~ dnorm(d, prec)			
+  }
 
-# Meta-meta-analysis of 19 meta-analyses comparing RCTs and 
-# NRCTs (Ioannidis et al 2001)
+  # Meta-meta-analysis of 19 meta-analyses comparing RCTs and 
+  # NRCTs (Ioannidis et al 2001)
+  
+  for( j in 1 : Nma) {
+    logRRR [j] ~ dnorm(d.bias, prec.bias)
+  }
 
-	   for( j in 1 : Nma) {
-	  logRRR [j] ~ dnorm(d.bias, prec.bias)
-					}
-# Priors
-
-		prec.bias <- 1/tau.sq.bias
-		tau.sq.bias <- tau.bias*tau.bias
-	   
-	   d ~ dnorm(0.27, prec.d)
-	   prec.d <- 1/tau.sq.d
-	   tau.sq.d <- 0.0037 + tau.sq.bias
-	   
-	prec <- 1/tau.sq
-	tau.sq <- tau*tau
-		    
-	tau ~ dunif(0,5)
-	    tau.bias ~ dunif(0,5)
-	    d.bias ~ dnorm(0.0,1.0E-5)
-	    beta ~ dnorm(0.0,1.0E-5)
-	    OR<- exp(d)
-	    prob.OR1 <- step(d)
-	}
+  # Priors
+  
+  prec.bias <- 1/tau.sq.bias
+  tau.sq.bias <- tau.bias*tau.bias
+  
+  d ~ dnorm(0.27, prec.d)
+  prec.d <- 1/tau.sq.d
+  tau.sq.d <- 0.0037 + tau.sq.bias
+  
+  prec <- 1/tau.sq
+  tau.sq <- tau*tau
+  
+  tau ~ dunif(0,5)
+  tau.bias ~ dunif(0,5)
+  d.bias ~ dnorm(0.0,1.0E-5)
+  beta ~ dnorm(0.0,1.0E-5)
+  OR<- exp(d)
+  prob.OR1 <- step(d)
+}
 	
 " %>% textConnection
 
@@ -327,64 +371,125 @@ Breast Screening - 3-level Hierarchical Model for Generalised Evidence Synthesis
 
 Following Prevost et al Stat Med 2000;19 & Spiegelhalter et al (2003) Example 8.5
 
-<font color="#FF0000"><pre>
+The WinBUGS code gave this error when I tried to run it in JAGS:
+```
 Error in rjags::jags.model(file = model.file, data = data, inits = inits,  : 
   RUNTIME ERROR:
 Compilation error on line 7.
-Attempt to redefine node logRR[1]
-</pre></font>
 
-```{r breast_screening, eval=FALSE}
+```
+
+Here is a copy of the WinBUGS version:
+```
+model {
+  for (j in 1:Nstud) {
+    logRR[j] <- log(RR[j])
+    P[j]  <- 1/(SE[j]*SE[j])
+    # Likelihood for within-type model
+    logRR[j] ~ dnorm(delta[j],P[j])
+    delta[j] ~ dnorm(phi[Type[j]],prec.stud[Type[j]])
+  }
+
+  # Likelihood for between-type model
+  for (i in 1:Ntype) {
+    phi[i] ~ dnorm(d,prec)
+    prec.stud[i] <- 1/psi.sq[i]
+    psi.sq[i] <- psi[i]*psi[i]
+    psi[i] ~ dnorm(0,8)I(0,)
+    
+    # Prior for psi is derived on basis that individual study effect is unlikely to 
+    # deviate from type effect by more than 4 times or less than 1/4.
+    # Therefore, upper 95% limit for psi = log(16)/(2*1.96) = 0.71.
+    # Half-Normal(0,0.35^2) prior distribution has this property.
+  
+  } 
+
+  # Priors
+       
+  d ~ dnorm(0,0.1)
+  
+  # Prior for d is derived on the basis that the overall effect is unlikely to 
+  # to exceed 500 in favour of either screening or control.
+  # Therefore, prior SD = log(500)/1.96 = 3.17 & precision = 1/(3.17^2) = 0.1.
+  
+  prec <- 1/tau.sq
+  tau.sq <- tau*tau
+  tau ~ dnorm(0,30)I(0,)
+  
+  # Prior for tau is derived on the basis that an specific type effect is unlikely 
+  # to deviate from the overall pooled effect (d) by more than 2 or less than 1/2.
+  # Therefore, upper 95%  limit for tau = log(2)/(2*1.96) = 0.018.
+  # Half-Normal(0,0.18^2) prior distribution has this property.
+   
+
+  # Transformation to Relative Risk scale 
+  for (i in 1:Ntype) {
+    RR.type[i] <- exp(phi[i])
+  }
+  RR.ov <- exp(d)
+}
+```
+
+To run it in JAGS, I moved the offending lines to a data block:
+
+```{r breast_screening, eval=TRUE}
 
 # Model
 
 model_code <- "
-model {
- for (j in 1:Nstud) {
-       logRR[j] <- log(RR[j])
-       P[j]  <- 1/(SE[j]*SE[j])
-# Likelihood for within-type model
-       logRR[j] ~ dnorm(delta[j],P[j])
-       delta[j] ~ dnorm(phi[Type[j]],prec.stud[Type[j]])
-       }
 
-# Likelihood for between-type model
-for (i in 1:Ntype) {
-       phi[i] ~ dnorm(d,prec)
-       prec.stud[i] <- 1/psi.sq[i]
-       psi.sq[i] <- psi[i]*psi[i]
-       psi[i] ~ dnorm(0,8)I(0,)
-
-# Prior for psi is derived on basis that individual study effect is unlikely to 
-# deviate from type effect by more than 4 times or less than 1/4.
-# Therefore, upper 95% limit for psi = log(16)/(2*1.96) = 0.71.
-# Half-Normal(0,0.35^2) prior distribution has this property.
-
-} 
-
-# Priors
-     
-d ~ dnorm(0,0.1)
-
-# Prior for d is derived on the basis that the overall effect is unlikely to 
-# to exceed 500 in favour of either screening or control.
-# Therefore, prior SD = log(500)/1.96 = 3.17 & precision = 1/(3.17^2) = 0.1.
-
-prec <- 1/tau.sq
-tau.sq <- tau*tau
-tau ~ dnorm(0,30)I(0,)
-
-# Prior for tau is derived on the basis that an specific type effect is unlikely 
-# to deviate from the overall pooled effect (d) by more than 2 or less than 1/2.
-# Therefore, upper 95%  limit for tau = log(2)/(2*1.96) = 0.018.
-# Half-Normal(0,0.18^2) prior distribution has this property.
- 
-
-# Transformation to Relative Risk scale 
-for (i in 1:Ntype) {
-RR.type[i] <- exp(phi[i])
+data {
+  for (j in 1:Nstud) {
+    logRR[j] <- log(RR[j])
+  }
 }
-RR.ov <- exp(d)
+
+model {
+  for (j in 1:Nstud) {
+    # logRR[j] <- log(RR[j])  # !!! moved to data block
+    P[j]  <- 1/(SE[j]*SE[j])
+    # Likelihood for within-type model
+    logRR[j] ~ dnorm(delta[j],P[j])
+    delta[j] ~ dnorm(phi[Type[j]],prec.stud[Type[j]])
+  }
+
+  # Likelihood for between-type model
+  for (i in 1:Ntype) {
+    phi[i] ~ dnorm(d,prec)
+    prec.stud[i] <- 1/psi.sq[i]
+    psi.sq[i] <- psi[i]*psi[i]
+    psi[i] ~ dnorm(0,8)I(0,)
+    
+    # Prior for psi is derived on basis that individual study effect is unlikely to 
+    # deviate from type effect by more than 4 times or less than 1/4.
+    # Therefore, upper 95% limit for psi = log(16)/(2*1.96) = 0.71.
+    # Half-Normal(0,0.35^2) prior distribution has this property.
+  
+  } 
+
+  # Priors
+       
+  d ~ dnorm(0,0.1)
+  
+  # Prior for d is derived on the basis that the overall effect is unlikely to 
+  # to exceed 500 in favour of either screening or control.
+  # Therefore, prior SD = log(500)/1.96 = 3.17 & precision = 1/(3.17^2) = 0.1.
+  
+  prec <- 1/tau.sq
+  tau.sq <- tau*tau
+  tau ~ dnorm(0,30)I(0,)
+  
+  # Prior for tau is derived on the basis that an specific type effect is unlikely 
+  # to deviate from the overall pooled effect (d) by more than 2 or less than 1/2.
+  # Therefore, upper 95%  limit for tau = log(2)/(2*1.96) = 0.018.
+  # Half-Normal(0,0.18^2) prior distribution has this property.
+   
+
+  # Transformation to Relative Risk scale 
+  for (i in 1:Ntype) {
+    RR.type[i] <- exp(phi[i])
+  }
+  RR.ov <- exp(d)
 }
 " %>% textConnection
 
