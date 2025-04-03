@@ -30,16 +30,17 @@ library('dplyr')
 
 ## `asprin_normal_fixed_1.txt`
 
+This is the model from Figure 4.1 (with a few extra digits of precision in the data).
 
 ```{r asprin_normal_fixed_1}
 
 model_code <- "model 
 { 
   for (i in 1:Nstud)
-     {
-        P[i] <- 1/V[i]
-	   y[i] ~ dnorm(d, P[i])
-	}
+    {
+      P[i] <- 1/V[i]
+      y[i] ~ dnorm(d, P[i])
+    }
 	d ~ dnorm(0, 1.0E-5)
 	OR <- exp(d)
 }" %>% textConnection
@@ -77,24 +78,26 @@ plot(results)
 
 ## `asprin_normal_random_1.txt`
 
+This is the model from Figure 4.3, except it uses lower case for the y[] variable vector.
+
 ```{r asprin_normal_random_1}
 
 model_code <- "model 
 { 
   for (i in 1:Nstud)
-     {
-       P[i] <- 1/V[i]
-	   y[i] ~ dnorm(delta[i], P[i])
-	   delta[i] ~ dnorm(d, prec) 
-	}	
+    {
+      P[i] <- 1/V[i]
+      y[i] ~ dnorm(delta[i], P[i])
+      delta[i] ~ dnorm(d, prec) 
+    }	
 	d ~ dnorm(0, 1.0E-5)
 	OR <- exp(d)
-	tau~dunif(0,10)
-	tau.sq<-tau*tau
-	prec<-1/(tau.sq)
+	tau ~ dunif(0,10)
+	tau.sq <- tau*tau
+	prec <- 1/(tau.sq)
 }" %>% textConnection
 
-# DATA
+# DATA  (the same as for the fixed effects model above)
 data <- list(
   y=c(.3289011, .3845458, .2195622, .2222206, .2254672, -.1246363, .1109658), 
   V=c(.0388957,.0411673,.0204915,.0647646,.0351996,.0096167,.0015062), 
@@ -103,7 +106,7 @@ data <- list(
 
 # INITIAL VALUES: This is a list of lists, one per chain.
 initial_values <- list(
-  list(d=0, tau =1, delta=c(0,0,0,0,0,0,0))
+  list(d = 0, tau = 1, delta = c(0,0,0,0,0,0,0))
 )
 
 results <- jags(
@@ -124,7 +127,9 @@ plot(results)
 
 ```
 
-## asprin_logistic_random_1.txt
+## `asprin_logistic_random_1.txt`
+
+This is the model from Figure 4.5 (except that the line `OR <- exp(d)` is in a different place).
 
 ```{r asprin_logistic_random_1}
 
@@ -138,11 +143,11 @@ model_code <- "model
     mu[i] ~ dnorm(0.0,1.0E-5)
     delta[i] ~ dnorm(d, prec)
   }
-  OR <- exp(d)
+  OR <- exp(d)   # !!! this line comes last in Figure 4.5
   d ~ dnorm(0.0,1.0E-6)
-  tau~dunif(0,10)
-  tau.sq<-tau*tau
-  prec<-1/(tau.sq)
+  tau ~ dunif(0,10)
+  tau.sq <- tau*tau
+  prec <- 1/(tau.sq)
 }" %>% textConnection
 
 # DATA
@@ -178,7 +183,7 @@ plot(results)
 
 ```
 
-## asprin_logistic_random1_predict.txt
+## `asprin_logistic_random1_predict.txt`
 
 ```{r asprin_logistic_random1_predict}
 
@@ -246,7 +251,9 @@ Attempt to redefine node rBx[1,1]
 
 ```{r asprin_logistic_random_1_priors_sensitivity, eval=FALSE}
 
-model_code <- "model
+
+model_code <- "
+model
 	{
 	
   ## replicating the data 2 times to fit to 3 models in total where j indexes alternative prior distributions
@@ -257,9 +264,9 @@ model_code <- "model
       for( i in 1 : Nstud )
       {
         rAx[j,i] ~ dbin(pA[j,i], nA[i])
-        rAx[j,i]<-rA[i]
+        rAx[j,i] <- rA[i]
         rBx[j,i] ~ dbin(pB[j,i], nB[i])
-        rBx[j,i]<-rB[i]
+        rBx[j,i] <- rB[i]
         logit(pA[j,i]) <- mu[j,i]
         logit(pB[j,i]) <- mu[j,i] + delta[j,i]
         mu[j,i] ~  dnorm(0.0,1.0E-5)
@@ -277,17 +284,17 @@ model_code <- "model
 	
   # Setting three different priors for the between study variance
   
-  prec[1] <-1/tau.sq[1]
-  tau.sq[1] <-tau[1]*tau[1]
+  prec[1] <- 1/tau.sq[1]
+  tau.sq[1] <- tau[1]*tau[1]
   tau[1] ~ dnorm(0,1.0E-6)I(0,)
   
-  prec[2] ~dgamma(0.001,0.001)
-  tau.sq[2] <-1/prec[2]
-  tau[2] <-sqrt(tau.sq[2])
+  prec[2] ~ dgamma(0.001,0.001)
+  tau.sq[2] <- 1/prec[2]
+  tau[2] <- sqrt(tau.sq[2])
   
-  tau[3] ~dunif(0,10)
-  tau.sq[3]<-tau[3]*tau[3]
-  prec[3]<-1/tau.sq[3]
+  tau[3] ~ dunif(0,10)
+  tau.sq[3] <- tau[3]*tau[3]
+  prec[3] <- 1/tau.sq[3]
 	
 	}
 " %>% textConnection
@@ -322,7 +329,7 @@ initial_values <- list(
 results <- jags(
   data = data,
   inits = initial_values,
-  parameters.to.save = c("OR", "d", "delta", "tau.sq"),
+  parameters.to.save = c("OR", "d", "delta", "tau.sq", "rAx"),
   model.file = model_code,
   n.chains = length(initial_values),
   n.adapt = 100,
@@ -427,6 +434,8 @@ plot(results)
 
 # `Cholesterol_fixed.txt`
 
+This is the file for Model 4.1 from the Exercises, referenced on p. 89.
+
 Model 1: Generic fixed effect model applied to the cholesterol lowering dataset
 
 ```{r Cholesterol_fixed}
@@ -511,6 +520,8 @@ plot(results)
 
 ## `Cholesterol_random.txt`
 
+This is the file for Model 4.2 from the Exercises, referenced on p. 90.
+
 Model 2: Generic random effect model applied to the cholesterol lowering dataset
 
 ```{r Cholesterol_random}
@@ -559,6 +570,8 @@ summary(results)
 ```
 
 ## `Cholesterol_random_logistic.txt`
+
+This is the file for Model 4.3 in the Exercises, p90.
 
 ```{r Cholesterol_random_logistic}
 model_code <- "model
@@ -649,6 +662,8 @@ plot(results)
 ```
 
 ## `Cholesterol_random_logistic_2`
+
+Also referenced on p90.
 
 Model 3 (Cont) Question 5: Direct OR model applied to the cholesterol lowering dataset
 
@@ -753,6 +768,8 @@ plot(results)
 
 ## `Cholesterol_prior_sens`
 
+This file is referenced for Model 4.4, p91.
+
 Model 4: Direct OR model with built in sensitivity analysis to prior
 
 ```
@@ -788,7 +805,7 @@ model
   {
     OR[j] <- exp(d[j])
     d[j] ~ dnorm(0.0,1.0E-6)
-    m[j]~dnorm(0.0,1.0E-6)
+    m[j] ~ dnorm(0.0,1.0E-6)
   }
 
 	
@@ -798,13 +815,13 @@ model
   tau.sq[1] <-tau[1]*tau[1]
   tau[1] ~ dnorm(0,1.0E-6)I(0,)
   
-  prec[2] ~dgamma(0.001,0.001)
-  tau.sq[2] <-1/prec[2]
-  tau[2] <-sqrt(tau.sq[2])
+  prec[2] ~ dgamma(0.001,0.001)
+  tau.sq[2] <- 1/prec[2]
+  tau[2] <- sqrt(tau.sq[2])
   
-  tau[3] ~dunif(0,50)
-  tau.sq[3]<-tau[3]*tau[3]
-  prec[3]<-1/tau.sq[3]
+  tau[3] ~ dunif(0,50)
+  tau.sq[3] <- tau[3]*tau[3]
+  prec[3] <- 1/tau.sq[3]
 	
 }" %>% textConnection
 
