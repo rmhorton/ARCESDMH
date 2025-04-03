@@ -15,6 +15,3 @@ Code that needed to be tweaked to run in JAGS:
 * Chapter_11: 'Attempt to redefine node' errors solved with data blocks.
 * Chapter 12: `ranked` function.
 
-
-# To Do:
-* remove thinning from all models
