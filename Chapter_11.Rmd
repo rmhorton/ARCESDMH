@@ -17,12 +17,16 @@ library('jagshelper')
 library('jagsUI')
 library('mcmcplots')  # caterplot
 library('dplyr')
+library('knitr')      # kable
 ```
 
 
 
+# Models discussed in the text
 
-# `HRT_power_prior`
+## `HRT_power_prior`
+
+This is essentially the model from Box 11.1 (pp231-232), except the code in the text does ot compute `prob.OR1[k]`.
 
 HRT - Power Prior Model
 
@@ -35,18 +39,7 @@ Prior based on distribution of pooled effect (Lancet 1997)
   => SD(logOR) = 0.061 => precision = 271.3
 
 
-
-
-The original WinBUGS code gave this error in JAGS:
-
-```
-Error in rjags::jags.model(file = model.file, data = data, inits = inits,  : 
-  RUNTIME ERROR:
-Compilation error on line 17.
-Attempt to redefine node rt[1,1]
-```
-
-Here is a copy of the WinBUGS version:
+The original WinBUGS code gave an `Attempt to redefine node` errors in JAGS, which was addressed by moving the dataset copies to a data block. Here is a copy of the WinBUGS version:
 ```
 model  {
   # Create multiple datasets
@@ -152,50 +145,16 @@ data <- list(
 initial_values <- list(
   list(
     mu=structure( 
-      .Data=c(-5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5,
-  								-5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5,
-  								-5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5,
-  								-5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5,
-  								-5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5,
-  								-5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5,
-  								-5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5,
-  								-5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5,
-  								-5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5,
-  								-5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5,
-  								-5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5,
-  								-5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5), 
+      .Data=rep(-5, 19 * 12), 
       .Dim=c(19,12)
     ),
     delta=structure( 
-      .Data=c(-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, 
-  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54,-0.54, -0.54, -0.54,
-  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, 
-  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54,-0.54, -0.54, -0.54,
-  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, 
-  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54,-0.54, -0.54, -0.54,
-  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, 
-  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54,-0.54, -0.54, -0.54,
-  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, 
-  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54,-0.54, -0.54, -0.54,
-  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, 
-  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54,-0.54, -0.54, -0.54,
-  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, 
-  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54,-0.54, -0.54, -0.54,
-  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, 
-  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54,-0.54, -0.54, -0.54,
-  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, 
-  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54,-0.54, -0.54, -0.54,
-  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, 
-  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54,-0.54, -0.54, -0.54,
-  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, 
-  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54,-0.54, -0.54, -0.54,
-  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54, 
-  									-0.54, -0.54, -0.54, -0.54, -0.54, -0.54, -0.54,-0.54, -0.54, -0.54), 
+      .Data=rep(-0.54, 19 * 12), 
       .Dim=c(19,12)
     ),
-    d = c(-0.51,-0.51,-0.51,-0.51,-0.51,-0.51,-0.51,-0.51,-0.51,-0.51,-0.51,-0.51),
+    d = rep(-0.51, 12),
     beta=-0.19,
-    tau=c(1,1,1,1,1,1,1,1,1,1,1,1)
+    tau=rep(1, 12)
   )
 )
 
@@ -212,43 +171,55 @@ results <- jags(data = data,
             n.burnin = 20000,
             n.thin = 2)
 
-summary(results)
+hrt_pp_results_summary <- summary(results)
 
+hrt_pp_results_summary %>% kable
 ```
 
+### WinBUGS results for HRT power prior model
+
+```{r hrt_power_prior_winbugs_results}
+
+hrt_ppwb_results <- "
+node	 mean	 sd	 MC error	2.5%	median	97.5%	start	sample
+OR.5years[1]	0.8338	0.4129	0.01195	0.2669	0.7939	1.692	20001	10000
+OR.5years[2]	0.8239	0.3979	0.01004	0.2994	0.7648	1.695	20001	10000
+OR.5years[3]	1.181	0.207	0.006385	0.8387	1.162	1.656	20001	10000
+OR.5years[4]	1.235	0.1614	0.00419	0.947	1.225	1.579	20001	10000
+OR.5years[5]	1.257	0.1352	0.002739	1.016	1.247	1.548	20001	10000
+OR.5years[6]	1.27	0.1193	0.002548	1.06	1.263	1.529	20001	10000
+OR.5years[7]	1.276	0.105	0.002092	1.085	1.271	1.502	20001	10000
+OR.5years[8]	1.279	0.09981	0.002264	1.096	1.274	1.488	20001	10000
+OR.5years[9]	1.285	0.09417	0.002484	1.115	1.282	1.477	20001	10000
+OR.5years[10]	1.29	0.08679	0.001553	1.128	1.287	1.466	20001	10000
+OR.5years[11]	1.29	0.0809	0.001679	1.14	1.287	1.458	20001	10000
+OR.5years[12]	1.29	0.07937	0.002053	1.139	1.289	1.449	20001	10000
+prob.OR1[1]	0.2537	0.4351	0.01604	0.0	0.0	1.0	20001	10000
+prob.OR1[2]	0.2292	0.4203	0.01169	0.0	0.0	1.0	20001	10000
+prob.OR1[3]	0.8087	0.3933	0.009994	0.0	1.0	1.0	20001	10000
+prob.OR1[4]	0.9383	0.2406	0.006712	0.0	1.0	1.0	20001	10000
+prob.OR1[5]	0.9826	0.1308	0.001813	1.0	1.0	1.0	20001	10000
+prob.OR1[6]	0.9942	0.07594	7.808E-4	1.0	1.0	1.0	20001	10000
+prob.OR1[7]	0.9988	0.03462	3.562E-4	1.0	1.0	1.0	20001	10000
+prob.OR1[8]	0.9992	0.02827	2.727E-4	1.0	1.0	1.0	20001	10000
+prob.OR1[9]	0.9999	0.009999	1.0E-4	1.0	1.0	1.0	20001	10000
+prob.OR1[10]	0.9999	0.009999	1.0E-4	1.0	1.0	1.0	20001	10000
+prob.OR1[11]	1.0	0.0	1.0E-12	1.0	1.0	1.0	20001	10000
+prob.OR1[12]	1.0	0.0	1.0E-12	1.0	1.0	1.0	20001	10000
+" %>% read.table(text=., sep="\t", header=TRUE, check.names=FALSE)
+
+# rename = c(X2.5.="2.5%", `X97.5.`= "97.5%")
+# for (old_name in names(rename)){
+#   new_name <- rename[old_name]
+#   names(ppwb_results)[names(ppwb_results)==old_name] <- new_name
+# }
+hrt_ppwb_results %>% kable
 ```
-WinBUGS results
-
-	 node	 mean	 sd	 MC error	2.5%	median	97.5%	start	sample
-	OR.5years[1]	0.8338	0.4129	0.01195	0.2669	0.7939	1.692	20001	10000
-	OR.5years[2]	0.8239	0.3979	0.01004	0.2994	0.7648	1.695	20001	10000
-	OR.5years[3]	1.181	0.207	0.006385	0.8387	1.162	1.656	20001	10000
-	OR.5years[4]	1.235	0.1614	0.00419	0.947	1.225	1.579	20001	10000
-	OR.5years[5]	1.257	0.1352	0.002739	1.016	1.247	1.548	20001	10000
-	OR.5years[6]	1.27	0.1193	0.002548	1.06	1.263	1.529	20001	10000
-	OR.5years[7]	1.276	0.105	0.002092	1.085	1.271	1.502	20001	10000
-	OR.5years[8]	1.279	0.09981	0.002264	1.096	1.274	1.488	20001	10000
-	OR.5years[9]	1.285	0.09417	0.002484	1.115	1.282	1.477	20001	10000
-	OR.5years[10]	1.29	0.08679	0.001553	1.128	1.287	1.466	20001	10000
-	OR.5years[11]	1.29	0.0809	0.001679	1.14	1.287	1.458	20001	10000
-	OR.5years[12]	1.29	0.07937	0.002053	1.139	1.289	1.449	20001	10000
-	prob.OR1[1]	0.2537	0.4351	0.01604	0.0	0.0	1.0	20001	10000
-	prob.OR1[2]	0.2292	0.4203	0.01169	0.0	0.0	1.0	20001	10000
-	prob.OR1[3]	0.8087	0.3933	0.009994	0.0	1.0	1.0	20001	10000
-	prob.OR1[4]	0.9383	0.2406	0.006712	0.0	1.0	1.0	20001	10000
-	prob.OR1[5]	0.9826	0.1308	0.001813	1.0	1.0	1.0	20001	10000
-	prob.OR1[6]	0.9942	0.07594	7.808E-4	1.0	1.0	1.0	20001	10000
-	prob.OR1[7]	0.9988	0.03462	3.562E-4	1.0	1.0	1.0	20001	10000
-	prob.OR1[8]	0.9992	0.02827	2.727E-4	1.0	1.0	1.0	20001	10000
-	prob.OR1[9]	0.9999	0.009999	1.0E-4	1.0	1.0	1.0	20001	10000
-	prob.OR1[10]	0.9999	0.009999	1.0E-4	1.0	1.0	1.0	20001	10000
-	prob.OR1[11]	1.0	0.0	1.0E-12	1.0	1.0	1.0	20001	10000
-	prob.OR1[12]	1.0	0.0	1.0E-12	1.0	1.0	1.0	20001	10000
-
-```
 
 
-# `HRT_bias_allowance`
+## `HRT_bias_allowance`
+
+This is the code from Box 11.2 (pp243-235), with some of the lines in a different order. The code in the text also does not compute `prob.OR1`.
 
 HRT Bias Allowance Model
 
@@ -348,24 +319,117 @@ results <- jags(data = data,
             n.burnin = 20000,
             n.thin = 2)
 
+
+hrt_ba_results_summary <- summary(results)
+
+hrt_ba_results_summary %>% kable
+
+```
+
+```{r hrt_ba_winbugs_results}
+hrt_bawb_results <- "
+node	 mean	 sd	 MC error	2.5%	median	97.5%	start	sample
+OR	0.8954	0.3737	0.01416	0.3843	0.8282	1.845	10001	10000
+beta	-0.1301	0.1952	0.008616	-0.5204	-0.1325	0.2612	10001	10000
+d	-0.1862	0.3861	0.01477	-0.9563	-0.1885	0.6126	10001	10000
+prob.OR1	0.294	0.4556	0.01666	0.0	0.0	1.0	10001	10000
+tau	1.082	0.778	0.05142	0.03262	0.9523	2.985	10001	10000
+tau.bias	0.5373	0.09916	0.001401	0.3867	0.5227	0.7721	10001	10000
+" %>% read.table(text=., sep="\t", header=TRUE, check.names=FALSE)
+
+hrt_bawb_results %>% kable
+```
+
+## Hierarchical model
+
+This is the code from Box 11.3 (p. 242). It was not included in the supplementary materials, so I typed it in by hand. I changed the name of a variable originally called 'mean' to 'my_mean', in case that is a reserved word in JAGS. This code runs, but I do not have official results to compare it to. The data values have not been double-checked. I added a second chain with arbitrary initial values, just to see that they both give similar distributions.
+
+```{r HRT_hierarchical}
+
+model_code <- "
+model {
+  # Randomized controlled trials
+  for (i in 1:R){
+    rct.prec[i] <- 1/(rct.serd[i] * rct.serd[i])
+    rct.rd[i] ~ dnorm(rct.psi[i], rct.prec[i])
+    rct.psi[i] <- theta[1] + (rct.z[i] * sd.theta[1])
+    rct.z[i] ~ dnorm(0, 1)
+  }
+  
+  # Comparative cohort studies model
+  for (i in 1:C){
+    coh.prec[i] <- 1/(coh.serd[i] * coh.serd[i])
+    coh.rd[i] ~ dnorm(coh.psi[i], coh.prec[i])
+    coh.psi[i] <- theta[2] + (coh.z[i] * sd.theta[2])
+    coh.z[i] ~ dnorm(0, 1)
+  }
+  
+  # Before after studies model
+  for (i in 1:B){
+    ba.prec[i] <- 1/(ba.serd[1] * ba.serd[1])
+    ba.rd[i] ~ dnorm(ba.psi[i], ba.prec[i])
+    ba.psi[i] <- theta[3] + (ba.z[1] * sd.theta[3])
+    ba.z[i] ~ dnorm(0, 1)
+  }
+  
+  # Combining all 3 sources
+  for (i in 1:T){
+    theta[i] <- my_mean + (u[i] * sd.mean)  # !!! in case 'mean' is a reserved word
+    u[i] ~ dnorm(0, 1)
+    sd.theta[i]  ~ dnorm(0, 0.1)I(0,)
+    var.theta[i] <- sd.theta[i] * sd.theta[i]   # !!! not used?
+    prec.theta[i] <- 1/(sd.theta[i] * sd.theta[i])
+  }
+  
+  my_mean ~ dnorm(0, 0.01)
+  sd.mean ~ dnorm(0, 0.1)I(0,)
+  var.mean <- sd.mean * sd.mean # !!! not used ?
+  prec.mean <- 1/(sd.mean * sd.mean)
+  
+}" %>% textConnection
+
+data <- list(
+  R=9, C=7, B=10, T=3,
+  rct.rd=c( -10.51552, -2.028398, 4.115085, 6.479482, 0.0078509, 0.0, 2.247191,
+            -5.817028, -3.984064),
+  rct.serd=c(4.762193, 2.871006, 7.142432, 5.032322, 0.8079891, 8.058098,
+             3.1075, 44.53912, 5.587013),
+  ba.rd=c(-4.036327, 2.304048, -0.6941801, -3.186446,-7.431126, -1.458522,
+          -4.036984, -1.613824, -1.461775, -0.1177738),
+  ba.serd=c(2.242277, 3.579612, 0.6056279, 0.9381518, 2.121014, 0.5100973,
+            1.072718, 0.6358061, 0.507642, 0.1981163),
+  coh.rd=c(-1.41, -2.19, -4.34, -2.84, -2.53, -0.23, -0.46),
+  coh.serd=c(1.433, 4.71, 1.914, 1.052, 3.081, 0.232, 0.123)
+)
+
+initial_values <- list(
+  list( my_mean=-0.001, sd.mean=0.001, sd.theta=rep(0.001, 3)),
+  list( my_mean= 0.1, sd.mean=0.1, sd.theta=rep(0.01, 3))
+)
+
+parameters_to_save <- c("rct.rd", "coh.rd", "ba.rd", "my_mean")
+
+
+results <- jags(data = data,
+            inits = initial_values,
+            parameters.to.save = parameters_to_save,
+            model.file = model_code,
+            n.chains = length(initial_values),
+            n.adapt = 100,
+            n.iter = 50000,
+            n.burnin = 20000)
+
 summary(results)
 
-```
+plot(results, parameters=c("my_mean"))
 
 ```
-WinBUGS results
- node	 mean	 sd	 MC error	2.5%	median	97.5%	start	sample
-	OR	0.8954	0.3737	0.01416	0.3843	0.8282	1.845	10001	10000
-	beta	-0.1301	0.1952	0.008616	-0.5204	-0.1325	0.2612	10001	10000
-	d	-0.1862	0.3861	0.01477	-0.9563	-0.1885	0.6126	10001	10000
-	prob.OR1	0.294	0.4556	0.01666	0.0	0.0	1.0	10001	10000
-	tau	1.082	0.778	0.05142	0.03262	0.9523	2.985	10001	10000
-	tau.bias	0.5373	0.09916	0.001401	0.3867	0.5227	0.7721	10001	10000
-	
-```
 
+# Exercises
 
-# `breast_screening`
+## `breast_screening`
+
+This is the code for exercise 11.5 (p. 248)
 
 Breast Screening - 3-level Hierarchical Model for Generalised Evidence Synthesis
 
@@ -547,3 +611,8 @@ Results from WinBUGS
 	tau	0.14	0.1053	0.002884	0.005694	0.1203	0.3903	20001	10000
 
 ```
+
+## To do
+
+* copy the data from 'efm RD.xls' in to R code.
+* add the code from the Solutions to Exercises
