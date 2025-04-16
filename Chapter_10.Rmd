@@ -6,7 +6,7 @@ output: html_document
 ---
 
 <font color="#FF0000">
-NOTE: Of the four examples in this set, only the second one currently works.
+NOTE: Several examples in this set are not working yet (these are chunks with eval=FALSE).
 </font>
 
 ```{r setup, include=FALSE}
@@ -21,8 +21,154 @@ library('jagshelper')
 library('jagsUI')
 library('mcmcplots')  # caterplot
 library('dplyr')
+
+library('tidyr') # pivot_wider
+library('knitr') # to format table as HTML
+
 ```
 
+# 'Example 10.2 revisited'
+
+This model is hand-typed from p203 of the book. The challenge here is that we can no longer pretend that JAGS/BUGS code for data is the same as R code. That is true for lists and matrixes, but not for higher-dimensional arrays. So the data needs to be munged into the row-major order that JAGS expects. 
+
+```{r example_10_2_revisited}
+
+model_code <- "
+model{
+  for (tmt in 1:2) {    # tmt: 1=Seretide, 2=Fluticasone
+    for (i in 1:4){     # four non-absorbing states
+      r[tmt, i, 1:5] ~ dmulti(pi[tmt, i, 1:5], n[tmt, i]) # multinomial data
+      pi[tmt, i, 1:5] ~ ddirch(prior[tmt, i, 1:5])        # Dirichlet prior
+    }
+  }
+
+}
+" %>% textConnection
+
+# We need to do some munging to create an R data structure with the
+# correct dimensions. First we make an R version of the `r` 3d array,
+# using the data as it is printed in the text:
+rr=structure(
+  .Data=c(                    # Seretide
+    210,	 60,	0,	1,	 1,	  # Row 1 (STW)
+     88,	641,	0,	4,	13,	  # Row 2 (UTW)
+      0,		0,	0,	0,	 0,	  # Row 3 (Hex)
+      1,		0,	0,	0,	 1,	  # Row 4 (Pex)
+                              # Fluticasone
+     66,   32,	0,	0,	 2,		# Row 1 (STW)
+     42,  752,	0,	5,	20,	  # Row 2 (UTW)
+      0,    0,  0,	0,	 0,	  # Row 3 (Hex)
+      0,    4,  0,	1,	 0    # Row 4 (Pex)
+    ), 
+    .Dim=c(5,4,2)             # Matrix dimensions # 2,4,5
+)
+
+# The Seretide matrix is t(r[,,1]), and the Fluticasone matrix is t(r[,,2])
+
+# Now we need to shift the values around to the arrangement JAGS expects. Start with a 3d array full of placeholder values:
+jr <- structure(
+  .Data=rep(-1, 2*4*5), 
+  .Dim=c(2,4,5)             # Matrix dimensions # 2,4,5
+)
+
+# Now copy in the numbers from the R array:
+for (tmt in 1:2){
+  for (i in 1:4){
+    for (j in 1:5){
+      jr[tmt, i, j] <- rr[j, i, tmt]
+    }
+  }
+}
+
+data <- list(
+  r=jr,
+  n=structure(                  # Row totals
+    .Data=c(272,746,0,2,
+            100,819,0,5), 
+    .Dim=c(2,4)
+  ),
+  prior=structure(              # Dirichlet priors all = 1
+    .Data=rep(1, 2*4*5), 
+		.Dim=c(2,4,5)
+	)
+)
+
+pi_results <- jags(
+  data = data,
+  parameters.to.save = "pi",
+  model.file = model_code,
+  n.chains = 1,
+  n.adapt = 100,
+  n.iter = 50000,
+  n.burnin = 20000
+)
+
+```
+
+The following chunk munges the results matrix to make a table more or less comparable to Table 10.4 in the text:
+
+<style>
+  table {
+    width: auto;
+  }
+  td {
+    border: 2px solid #999;
+    padding: 10px 5px;
+  }
+  thead {
+    background-color: #999;
+    border: 2px solid #999;
+    color: white;
+  }
+  tbody {
+    color: black;
+  }
+</style>
+
+```{r smry, results='asis'}
+pi_smry <- summary(pi_results)
+
+keeper_cols <- c("mean", "2.5%", "97.5%")
+
+states <- c('STW', 'UTW', 'Hex', 'Pex', 'TF')
+treatments = c('Seretide', 'Fluticasone')
+
+seretide_flags <- dimnames(pi_smry)[[1]] %>% grepl("pi[1", ., fixed=TRUE)
+fluticasone_flags <- dimnames(pi_smry)[[1]] %>% grepl("pi[2", ., fixed=TRUE)
+# fluticasone_flags is not the same as !seretide_flags because of 'deviance'
+tt_long <- rbind(
+  pi_smry[seretide_flags, keeper_cols],
+  pi_smry[fluticasone_flags, keeper_cols]
+) %>% 
+  as.data.frame %>% 
+  mutate(
+    value=sprintf("%0.3f<br/>(%0.2f, %0.2f)", mean, `2.5%`, `97.5%`),
+  ) %>% select(value)
+
+pat_matches <- row.names(tt_long) %>% regexec("pi\\[(\\d),(\\d),(\\d)\\]", .)
+idx_df <- regmatches(row.names(tt_long), pat_matches) %>%
+  sapply(function(v) v[2:4] %>% as.numeric) %>% 
+  t %>%
+  data.frame %>%
+  setNames(., nm = c('tmt', 'i', 'j')) %>%
+  mutate(
+    Treatment = treatments[tmt],
+    From = states[i],
+    To = states[j]
+  ) %>% 
+  select(Treatment, From, To)
+
+ttl <- bind_cols(idx_df, tt_long)
+
+ttl %>% 
+  pivot_wider(id_cols=c('Treatment', 'From'), names_from=c("To")) %>%
+  as.data.frame %>% 
+  # xtable %>% print(type = "html")
+  knitr::kable(., format='html', escape=FALSE)
+
+```
+
+These numbers correspond well to those in Table 10.4, p 204. I have not included rows showing the probabilities of transitioning from the terminal state 'TF', since that state can only transition to itself.
 
 # `asthma_1`
 
