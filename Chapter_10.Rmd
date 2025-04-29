@@ -1,20 +1,18 @@
 ---
 title: 'Chapter 10: Markov models'
 author: "Bob"
-date: "2025-03-02"
+date: "2025-04-29"
 output: html_document
 ---
 
-<font color="#FF0000">
-NOTE: Not all the examples for this chapter are working yet. Chunks that do not even run sucessfully are marked by `eval=FALSE`. Those not explicitly noted as matching the results in the text or winBUGS have not been checked against those sources.
+
+NOTE: All the examples for this chapter now compile and run. Those not explicitly noted as matching the results in the text or winBUGS have not been checked against those sources.
 
 So far I've seen three major gotchas for porting the WinBUGS code for this chapter to R/JAGS, listed here with workarounds:
 
 * "Attempt to redefine node" error: try moving assignments to a data block.
 * "Error in node (r[1,3,1]/rhat[1,3,1]) Invalid parent values": this is actually a divide-by-zero error in disguise; try adding a really small value to the denominator.
 * 3d data needs to be in row-major order: restructure 3D arrays until they match the indexing expected in the JAGS/BUGS code.
-
-</font>
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -246,7 +244,7 @@ dev_summary[display_order,]
 
 Estimating Transition Probabilities
 
-```{r asthma_1, eval=TRUE}
+```{r asthma_1}
 
 # Model
 
@@ -484,19 +482,21 @@ summary(results)
 # `evsyn_markov_book_1`
 Synthesis of Studies Reporting Aggregate and Event History Data
 
-<font color="#FF0000"><pre>
-Error in rjags::jags.model(file = model.file, data = data, inits = inits,  : 
-  RUNTIME ERROR:
-Compilation error on line 71.
-Attempt to redefine node n[1]
-</pre></font>
+I had to make two kinds of changes to get this to run:
 
-```{r evsyn_markov_book_1, eval=FALSE}
+* move the value assignment for n[i] to the data block
+* rearrage the 3d data in r.agg, then make sure the sums in n.agg match the values in r.agg
+
+<font color="#F00">
+TO DO: Check these answers against WinBUGS.
+</font>
+
+
+```{r evsyn_markov_book_1}
 
 model_code <- "
 
 data {
-  # smidge <- 2.225074e-308 # ???
   for (i in 1:2) {
       n[i] <- m12[i] + m13[i]
   }
@@ -506,8 +506,7 @@ model {
 
   # MODEL
 
-  # Random effects model for logs of study-specific rates
-  # lamda1 of leaving state 1
+  # Random effects model for logs of study-specific rates lamda1 of leaving state 1
   for (s in 1:15) {
     loglam1[s] ~ dnorm(L,prec)        # Random effects model for lambda1
     log(lambda1[s]) <- loglam1[s]
@@ -605,13 +604,16 @@ data <- list(
 
   #STUDIES 1-2
   #2 studies reporting aggregate data for all states, for given observation cycle, T
-	r.agg=structure(.Data=c(87,	4,	9,	
-						    					0,	3,	1,
-						
-												210,	8,	15,
-												0,		5,		3), .Dim=c(2,2,3)), 
-	n.agg=structure(.Data=c(100,	4,
-												233,	8), .Dim=c(2,2)), 
+  
+  ## !!! This 3D array needs to be rearranged; it will be added below
+	# r.agg=structure(.Data=c(87,	4,	9,	
+	# 					    					0,	3,	1,
+	# 					
+	# 											210,	8,	15,
+	# 											0,		5,		3), .Dim=c(2,2,3)), 
+
+	# n.agg=structure(.Data=c(100,	4,
+	# 											233,	8), .Dim=c(2,2)), 
 
   # STUDIES 3-5
   # 3 studies reporting no. transitions to death for given observation cycle, T
@@ -632,8 +634,25 @@ data <- list(
 	m13=c(40,75),
 	E=c(380,1169) #!!! , trailing comma was OK in WinBUGS     
 
-)                                          
-     
+)
+
+studies <- list(
+  matrix(c(87,	4,	9,	
+	  				0,	3,	1), nrow=2, byrow=TRUE),
+  matrix(c(210,	8,	15,	
+	  				 0,	5,	 3), nrow=2, byrow=TRUE)
+)
+data$r.agg <- structure( .Data=rep(-1, 2*2*3), .Dim=c(2,2,3))
+data$n.agg=structure(.Data=rep(-1, 2*2), .Dim=c(2,2))
+for (s in 1:2){
+  for (r in 1:2){
+    for (c in 1:3){
+      data$r.agg[s, r, c] <- studies[[s]][r,c]
+    }
+    data$n.agg[s, r] <- sum(data$r.agg[s, r, 1:3])
+  }
+}
+
 # INITIAL VALUES    
 
 initial_values <- list(
@@ -665,17 +684,23 @@ summary(results)
 # `evsyn_markov_book_2`
 Including Studies with Treatment Comparisons
 
-<font color="#FF0000"><pre>RUNTIME ERROR:
+When I tried to run the WinBUGS code directly, I got this error:
+<pre>
+RUNTIME ERROR:
 Compilation error on line 70.
-Attempt to redefine node n[1]</pre></font>
+Attempt to redefine node n[1]
+</pre>
 
-I fixed that by moving one line of code to a data block. Now I get:
-```
+I fixed that by moving one line of code to a data block. Then I got:
+<pre>
   Error in node r.aggt[1,1,1:3]
 Node inconsistent with parents
-```
+</pre>
 
-```{r evsyn_markov_book_2, eval=FALSE}
+This was fixed by rearranging the 3d data structures.
+
+
+```{r evsyn_markov_book_2}
 model_code <- "
 data{
   smidge <- 2.225074e-308
@@ -689,26 +714,27 @@ model {
 #MODEL
 
 # Random effects model for logs of study-specific  rates  lamda1 of leaving state 1
-for (s in 1:15) { loglam1[s] ~ dnorm(L,prec) 	#  Random effects model for lambda1
-						 log(lambda1[s]) <- loglam1[s]
-						gamma12[s]<-lambda1[s]*(1-rho)	#Study specific transition rates 1 to 2
-						gamma13[s]<-lambda1[s]*rho	     #Study specific transition rates 1 to 3
-						}   
+for (s in 1:15) { 
+  loglam1[s] ~ dnorm(L,prec) 	   #  Random effects model for lambda1
+	log(lambda1[s]) <- loglam1[s]
+	gamma12[s]<-lambda1[s]*(1-rho) # Study specific transition rates 1 to 2
+	gamma13[s]<-lambda1[s]*rho	   # Study specific transition rates 1 to 3
+}   
 
 # PRIORS
 
-gamma23 ~ dexp(.001)                              # vague prior for 'fixed' transition rate 2 to 3
-L ~ dnorm(0,.00001)                                        # vague prior for population mean loglamda1
-tau ~ dunif(0,1)                                              # vague prior for sd for population loglamda1
+gamma23 ~ dexp(.001)             # vague prior for 'fixed' transition rate 2 to 3
+L ~ dnorm(0,.00001)              # vague prior for population mean loglamda1
+tau ~ dunif(0,1)                 # vague prior for sd for population loglamda1
 prec <- 1/(tau*tau)  
-rho ~ dbeta(1,1)                                         # vague prior for proportion going to state 2 from 1
+rho ~ dbeta(1,1)                 # vague prior for proportion going to state 2 from 1
 
-logh~dnorm(0,.00001)							#Normal prior on log-hazard ratio
+logh~dnorm(0,.00001)						 # Normal prior on log-hazard ratio
 log(h)<- logh
 
-#LIKELIHOOD 
+# LIKELIHOOD 
 
-#2 studies reported aggregated total no. of transitions 
+# 2 studies reported aggregated total no. of transitions 
 	for (s in 1:2){
 		for (i in 1:2){
 			r.agg[s,i,1:3] ~ dmulti(pi.agg[s,i,1:3],n.agg[s,i])
@@ -758,23 +784,23 @@ log(h)<- logh
     m13[i] ~ dbin(rho,n[i])                   # likelihood for binomial proportion going to state 3
   }
   
-  #Three different ways to summarise random effects model for lambda1, and form transition #rates. 
+  # Three different ways to summarise random effects model for lambda1, and form transition #rates. 
   
-  #1. Use population mean, L
+  # 1. Use population mean, L
   g12[1] <- (1-rho) * exp(L)
   g13[1] <-   rho * exp(L)
   
-  #2. Use predictive distribution for loglam1
+  # 2. Use predictive distribution for loglam1
   loglam1.pred~dnorm(L,prec)
   log(lambda1.pred)<-loglam1.pred
   g12[2] <- (1-rho) * lambda1.pred
   g13[2] <- rho * lambda1.pred
   
-  #3. Calibrate to study 15
+  # 3. Calibrate to study 15
   g12[3] <- (1-rho) * lambda1[15]
   g13[3] <- rho * lambda1[15]
   
-  #Transition probabilities over observation period T=1, for each RE summary
+  # Transition probabilities over observation period T=1, for each RE summary
   for (j in 1:3){
   	P11[j] <- exp(-(g12[j]+g13[j]))
   	P12[j] <- g12[j]*(exp(-gamma23)-exp(-(g12[j]+g13[j])))/(g12[j]+g13[j]-gamma23)
@@ -788,32 +814,34 @@ log(h)<- logh
 " %>% textConnection
 
 # DATA LIST
-data <- list(                                                                                           
+data <- list(                                                                                         
 
-# STUDIES 1-2
-# 2 studies reporting aggregate data for all states, for given observation cycle, T
-	r.agg=structure(.Data=c(87,	4,	9,	
-						    					0,	3,	1,
-						
-												210,	8,	15,
-												0,		5,		3), .Dim=c(2,2,3)), 
-	n.agg=structure(.Data=c(100,	4,
-												233,	8), .Dim=c(2,2)), 
-
-#Studies 1-2 also report a treatment arm
-	r.aggt=structure(.Data=c(140,	2,	14,	
-						    					0,	2,	0,
-						
-												264,	5,	27,
-												0,		3,		2), .Dim=c(2,2,3)), 
-	n.aggt=structure(.Data=c(156,	2,
-												296,	5), .Dim=c(2,2)), 
+# !!! The 3d structures r.agg and r.aggt need to be rearranged, and their 2d row sums need to match.
+# !!! This is done in code below.
+# # STUDIES 1-2
+# # 2 studies reporting aggregate data for all states, for given observation cycle, T
+# 	r.agg=structure(.Data=c(87,	4,	9,	
+# 						    					0,	3,	1,
+# 						
+# 												210,	8,	15,
+# 												0,		5,		3), .Dim=c(2,2,3)), 
+# 	n.agg=structure(.Data=c(100,	4,
+# 												233,	8), .Dim=c(2,2)), 
+# 
+# # Studies 1-2 also report a treatment arm
+# 	r.aggt=structure(.Data=c(140,	2,	14,	
+# 						    					0,	2,	0,
+# 						
+# 												264,	5,	27,
+# 												0,		3,		2), .Dim=c(2,2,3)), 
+# 	n.aggt=structure(.Data=c(156,	2,
+# 												296,	5), .Dim=c(2,2)), 
 
 # STUDIES 3-5
-#3 studies reporting no. transitions to death for given observation cycle, T
+# 3 studies reporting no. transitions to death for given observation cycle, T
        r.d=c(38,15,11,60),      n.d=c(181,177,103,335) , 
 
-#Observation time & study number for 6 aggregate data observations
+# Observation time & study number for 6 aggregate data observations
 T=c(1,1, 2,1.5,2,5), study=c(1,2,3,4,4,5),
 
 # STUDIES 6-13
@@ -827,6 +855,32 @@ T=c(1,1, 2,1.5,2,5), study=c(1,2,3,4,4,5),
      m12=c(18,30),     m13=c(40,75),         E=c(380,1169)     
 
 )
+
+studies <- list(
+  matrix(c(87,	4,	9,	
+	  				0,	3,	1), nrow=2, byrow=TRUE),
+  matrix(c(210,	8,	15,	
+	  				 0,	5,	 3), nrow=2, byrow=TRUE)
+)
+treatment_arm <- list(
+  matrix( c(140,	2,	14,	
+  						0,	2,	0), nrow=2, byrow=TRUE),
+  matrix( c(264,	5,	27,
+  						0,	3,	 2), nrow=2, byrow=TRUE)
+)
+data$r.agg <- data$r.aggt <- structure( .Data=rep(-1, 2*2*3), .Dim=c(2,2,3))
+data$n.agg <- data$n.aggt <- structure(.Data=rep(-1, 2*2), .Dim=c(2,2))
+for (s in 1:2){
+  for (r in 1:2){
+    for (c in 1:3){
+      data$r.agg[s, r, c] <- studies[[s]][r,c]
+      data$r.aggt[s, r, c] <- treatment_arm[[s]][r,c]
+    }
+    data$n.agg[s, r] <- sum(data$r.agg[s, r, 1:3])
+    data$n.aggt[s, r] <- sum(data$r.aggt[s, r, 1:3])
+  }
+}
+
 
 # INITIAL VALUES
 initial_values <- list(
