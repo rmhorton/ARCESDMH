@@ -357,23 +357,37 @@ display: none;
 </div>
 
 
-<p><font color="#FF0000"> NOTE: Several examples in this set are not
-working yet (these are chunks with eval=FALSE). </font></p>
+<p><font color="#FF0000"> NOTE: Not all the examples for this chapter
+are working yet. Chunks that do not even run sucessfully are marked by
+<code>eval=FALSE</code>. Those not explicitly noted as matching the
+results in the text or winBUGS have not been checked against those
+sources.</p>
+<p>So far I’ve seen three major gotchas for porting the WinBUGS code for
+this chapter to R/JAGS, listed here with workarounds:</p>
+<ul>
+<li>“Attempt to redefine node” error: try moving assignments to a data
+block.</li>
+<li>“Error in node (r[1,3,1]/rhat[1,3,1]) Invalid parent values”: this
+is actually a divide-by-zero error in disguise; try adding a really
+small value to the denominator.</li>
+<li>3d data needs to be in row-major order: restructure 3D arrays until
+they match the indexing expected in the JAGS/BUGS code.</li>
+</ul>
+<p></font></p>
 <pre class="r"><code>library(&#39;rjags&#39;)
 library(&#39;coda&#39;)
 library(&#39;jagshelper&#39;)
 library(&#39;jagsUI&#39;)
 library(&#39;mcmcplots&#39;)  # caterplot
 library(&#39;dplyr&#39;)
-
-library(&#39;tidyr&#39;) # pivot_wider
-library(&#39;knitr&#39;) # to format table as HTML</code></pre>
-<div id="example-10.2-revisited" class="section level1">
-<h1>‘Example 10.2 revisited’</h1>
-<p>This model is hand-typed from p203 of the book. The challenge here is
-that we can no longer pretend that JAGS/BUGS code for data is the same
-as R code. That is true for lists and matrixes, but not for
-higher-dimensional arrays. So the data needs to be munged into the
+library(&#39;tidyr&#39;) # pivot_longer
+library(&#39;knitr&#39;) # HTML table display</code></pre>
+<div id="example-10.2-revisited-p-203" class="section level1">
+<h1>Example 10.2 revisited, p 203</h1>
+<p>This model is hand-typed from the book. The challenge here is that we
+can no longer pretend that JAGS/BUGS code for data is the same as R
+code. That is true for lists and matrixes, but not for
+higher-dimensional arrays, so the data needs to be munged into the
 row-major order that JAGS expects.</p>
 <pre class="r"><code>model_code &lt;- &quot;
 model{
@@ -396,6 +410,7 @@ rr=structure(
      88,    641,    0,  4,  13,   # Row 2 (UTW)
       0,        0,  0,  0,   0,   # Row 3 (Hex)
       1,        0,  0,  0,   1,   # Row 4 (Pex)
+    
                               # Fluticasone
      66,   32,  0,  0,   2,     # Row 1 (STW)
      42,  752,  0,  5,  20,   # Row 2 (UTW)
@@ -409,8 +424,8 @@ rr=structure(
 
 # Now we need to shift the values around to the arrangement JAGS expects. Start with a 3d array full of placeholder values:
 jr &lt;- structure(
-  .Data=rep(-1, 2*4*5), 
-  .Dim=c(2,4,5)             # Matrix dimensions # 2,4,5
+  .Data=rep(-1, 2*4*5),     # -1 can&#39;t really happen
+  .Dim=c(2,4,5)             # Matrix dimensions
 )
 
 # Now copy in the numbers from the R array:
@@ -422,14 +437,18 @@ for (tmt in 1:2){
   }
 }
 
+## The row totals need to be swapped and flipped (row major order) to match the `r` array.
+## Since this is 2d data we can just use a matrix:
+jn &lt;- matrix(
+    c(272,746,0,2,
+      100,819,0,5),
+    nrow=2, byrow=TRUE
+)
+
 data &lt;- list(
-  r=jr,
-  n=structure(                  # Row totals
-    .Data=c(272,746,0,2,
-            100,819,0,5), 
-    .Dim=c(2,4)
-  ),
-  prior=structure(              # Dirichlet priors all = 1
+  r=jr,                      # `r` array in row-major order
+  n=jn,                      # Row totals
+  prior=structure(           # Dirichlet priors all = 1
     .Data=rep(1, 2*4*5), 
         .Dim=c(2,4,5)
     )
@@ -472,8 +491,6 @@ pi_results &lt;- jags(
 ## Calculating statistics....... 
 ## 
 ## Done.</code></pre>
-<p>The following chunk munges the results matrix to make a table more or
-less comparable to Table 10.4 in the text:</p>
 <style>
 table {
 width: auto;
@@ -588,7 +605,7 @@ Seretide
 UTW
 </td>
 <td style="text-align:left;">
-0.119<br />(0.10, 0.14)
+0.118<br />(0.10, 0.14)
 </td>
 <td style="text-align:left;">
 0.855<br />(0.83, 0.88)
@@ -611,19 +628,19 @@ Seretide
 Hex
 </td>
 <td style="text-align:left;">
-0.199<br />(0.01, 0.60)
-</td>
-<td style="text-align:left;">
-0.201<br />(0.01, 0.60)
-</td>
-<td style="text-align:left;">
-0.203<br />(0.01, 0.61)
+0.201<br />(0.01, 0.61)
 </td>
 <td style="text-align:left;">
 0.200<br />(0.01, 0.60)
 </td>
 <td style="text-align:left;">
-0.198<br />(0.01, 0.60)
+0.200<br />(0.01, 0.59)
+</td>
+<td style="text-align:left;">
+0.199<br />(0.01, 0.60)
+</td>
+<td style="text-align:left;">
+0.200<br />(0.01, 0.60)
 </td>
 </tr>
 <tr>
@@ -634,19 +651,19 @@ Seretide
 Pex
 </td>
 <td style="text-align:left;">
-0.285<br />(0.04, 0.64)
+0.286<br />(0.05, 0.64)
 </td>
 <td style="text-align:left;">
-0.143<br />(0.00, 0.46)
+0.142<br />(0.00, 0.46)
 </td>
 <td style="text-align:left;">
-0.143<br />(0.00, 0.46)
+0.142<br />(0.00, 0.46)
 </td>
 <td style="text-align:left;">
-0.143<br />(0.00, 0.46)
+0.142<br />(0.00, 0.46)
 </td>
 <td style="text-align:left;">
-0.286<br />(0.04, 0.64)
+0.287<br />(0.04, 0.64)
 </td>
 </tr>
 <tr>
@@ -657,19 +674,19 @@ Fluticasone
 STW
 </td>
 <td style="text-align:left;">
-0.639<br />(0.54, 0.73)
+0.638<br />(0.55, 0.73)
 </td>
 <td style="text-align:left;">
-0.314<br />(0.23, 0.40)
-</td>
-<td style="text-align:left;">
-0.009<br />(0.00, 0.03)
+0.315<br />(0.23, 0.40)
 </td>
 <td style="text-align:left;">
 0.010<br />(0.00, 0.03)
 </td>
 <td style="text-align:left;">
-0.028<br />(0.01, 0.07)
+0.009<br />(0.00, 0.03)
+</td>
+<td style="text-align:left;">
+0.029<br />(0.01, 0.07)
 </td>
 </tr>
 <tr>
@@ -706,16 +723,16 @@ Hex
 0.199<br />(0.01, 0.60)
 </td>
 <td style="text-align:left;">
+0.201<br />(0.01, 0.61)
+</td>
+<td style="text-align:left;">
+0.201<br />(0.01, 0.61)
+</td>
+<td style="text-align:left;">
 0.200<br />(0.01, 0.60)
 </td>
 <td style="text-align:left;">
-0.201<br />(0.01, 0.60)
-</td>
-<td style="text-align:left;">
 0.200<br />(0.01, 0.60)
-</td>
-<td style="text-align:left;">
-0.199<br />(0.01, 0.60)
 </td>
 </tr>
 <tr>
@@ -726,19 +743,19 @@ Fluticasone
 Pex
 </td>
 <td style="text-align:left;">
-0.099<br />(0.00, 0.33)
+0.100<br />(0.00, 0.34)
 </td>
 <td style="text-align:left;">
-0.501<br />(0.21, 0.79)
-</td>
-<td style="text-align:left;">
-0.100<br />(0.00, 0.33)
-</td>
-<td style="text-align:left;">
-0.200<br />(0.03, 0.48)
+0.499<br />(0.21, 0.79)
 </td>
 <td style="text-align:left;">
 0.100<br />(0.00, 0.34)
+</td>
+<td style="text-align:left;">
+0.201<br />(0.03, 0.48)
+</td>
+<td style="text-align:left;">
+0.101<br />(0.00, 0.34)
 </td>
 </tr>
 </tbody>
@@ -746,76 +763,198 @@ Pex
 <p>These numbers correspond well to those in Table 10.4, p 204. I have
 not included rows showing the probabilities of transitioning from the
 terminal state ‘TF’, since that state can only transition to itself.</p>
+<div id="residual-deviance" class="section level2">
+<h2>Residual Deviance</h2>
+<p>Here we add the code from p205 to compute residual deviance. The data
+remains the same.</p>
+<p>We now encounter a new problem; the values of rhat for state 3 are
+exactly 0, which gives us a division problem. KLUDGE ALERT: I am
+addressing this by adding a really small value to rhat so it cannot be
+0. I mean REALLY small.</p>
+<pre class="r"><code>model_code &lt;- &quot;
+data{
+  smidge &lt;- 2.225074e-308 # from `.Machine$double.xmin` in R
+  # Yes, it is a kludge, but that is a really small number!
+}
+
+model{
+  for (tmt in 1:2) {    # tmt: 1=Seretide, 2=Fluticasone
+    for (i in 1:4){     # four non-absorbing states
+      r[tmt, i, 1:5] ~ dmulti(pi[tmt, i, 1:5], n[tmt, i]) # multinomial data
+      pi[tmt, i, 1:5] ~ ddirch(prior[tmt, i, 1:5])        # Dirichlet prior
+      ## We could just add the new operations into the existing loops:
+      # for (j in 1:5){
+      #   rhat[tmt, i, j] &lt;- pi[tmt, i, j] * n[tmt, i] + smidge # Predicted no. given model
+      #   dev[tmt, i, j] &lt;- 2 * r[tmt, i, j] * log( r[tmt, i, j]/rhat[tmt, i, j]) # residual deviance for each cell
+      # }
+      # resdev[tmt, i] &lt;- sum(dev[tmt, i, 1:5])         # residual deviance for each row
+    }
+  }
+  
+  # Instead, I use separate loops to emphasize the new code.
+  for (tmt in 1:2) {    # tmt: 1=Seretide, 2=Fluticasone
+    for (i in 1:4){     # four non-absorbing states
+      for (j in 1:5){
+        rhat[tmt, i, j] &lt;- pi[tmt, i, j] * n[tmt, i] + smidge # Predicted no. given model
+        dev[tmt, i, j] &lt;- 2 * r[tmt, i, j] * log(r[tmt, i, j]/rhat[tmt, i, j]) # residual deviance for each cell
+      }
+      resdev[tmt, i] &lt;- sum(dev[tmt, i, 1:5])         # residual deviance for each row
+    }
+  }
+  
+  resdevtot &lt;- sum(resdev[1:2, 1:4])                  # total residual deviance
+
+}
+&quot; %&gt;% textConnection
+
+dev_results &lt;- jags(
+  data = data,
+  parameters.to.save = c(&quot;resdev&quot;, &quot;resdevtot&quot;),
+  model.file = model_code,
+  n.chains = 1,
+  n.adapt = 100,
+  n.iter = 50000,
+  n.burnin = 20000
+)</code></pre>
+<pre><code>## 
+## Processing function input....... 
+## 
+## Done. 
+##  
+## Compiling data graph
+##    Resolving undeclared variables
+##    Allocating nodes
+##    Initializing
+##    Reading data back into data table
+## Compiling model graph
+##    Resolving undeclared variables
+##    Allocating nodes
+## Graph information:
+##    Observed stochastic nodes: 8
+##    Unobserved stochastic nodes: 8
+##    Total graph size: 372
+## 
+## Initializing model
+## 
+## Adaptive phase, 100 iterations x 1 chains 
+## If no progress bar appears JAGS has decided not to adapt 
+##  
+## 
+##  Burn-in phase, 20000 iterations x 1 chains 
+##  
+## 
+## Sampling from joint posterior, 30000 iterations x 1 chains 
+##  
+## 
+## Calculating statistics....... 
+## 
+## Done.</code></pre>
+<pre class="r"><code>dev_summary &lt;- summary(dev_results)
+
+display_order &lt;- dimnames(dev_summary)[[1]] %&gt;% sort %&gt;% &quot;[&quot;(c(2:10, 1))
+
+dev_summary[display_order,]</code></pre>
+<pre><code>##                  mean       sd       2.5%       25%       50%       75%
+## resdev[1,1]  5.242808 3.334247  0.8920268  2.791290  4.534324  6.933234
+## resdev[1,2]  5.047817 3.199390  0.8263789  2.709658  4.391736  6.653763
+## resdev[1,3]  0.000000 0.000000  0.0000000  0.000000  0.000000  0.000000
+## resdev[1,4]  3.024940 1.646361  0.7230315  1.814879  2.721451  3.906210
+## resdev[2,1]  5.860467 3.388807  1.2084326  3.367606  5.222582  7.667871
+## resdev[2,2]  5.049658 3.178001  0.8560049  2.707489  4.381781  6.699339
+## resdev[2,3]  0.000000 0.000000  0.0000000  0.000000  0.000000  0.000000
+## resdev[2,4]  4.608303 2.493615  1.0908562  2.784141  4.159306  5.937974
+## resdevtot   28.833992 7.155469 16.6539874 23.755222 28.237249 33.327145
+## deviance    76.853367 7.155469 64.6733628 71.774598 76.256624 81.346520
+##                 97.5% Rhat n.eff overlap0 f
+## resdev[1,1] 13.401825   NA     1        0 1
+## resdev[1,2] 12.916390   NA     1        0 1
+## resdev[1,3]  0.000000   NA     1        1 1
+## resdev[1,4]  7.040918   NA     1        0 1
+## resdev[2,1] 14.157588   NA     1        0 1
+## resdev[2,2] 12.884014   NA     1        0 1
+## resdev[2,3]  0.000000   NA     1        1 1
+## resdev[2,4] 10.740163   NA     1        0 1
+## resdevtot   44.508222   NA     1        0 1
+## deviance    92.527598   NA     1        0 1</code></pre>
+</div>
 </div>
 <div id="asthma_1" class="section level1">
 <h1><code>asthma_1</code></h1>
 <p>Estimating Transition Probabilities</p>
-<font color="#FF0000">
-<pre>
-Error in rjags::jags.model(file = model.file, data = data, inits =
-inits, : Error in node (r[1,2,1]/rhat[1,2,1]) Invalid parent values
-<p re>
-<p></font></p>
 <pre class="r"><code># Model
 
-model_code &lt;- &quot;model{
-    for (tmt in 1:2){                                       # Treatments tmt=1 (Seretide), tmt=2 (Fluticasone)
-        for (i in 1:4){                                   # There are 4 non-absorbing health states
-            r[tmt, i, 1:5] ~ dmulti(pi[tmt,i,1:5],n[tmt,i])     # Multinomial data
+model_code &lt;- &quot;
+data{
+  smidge &lt;- 2.225074e-308
+}
+model{
+    for (tmt in 1:2){                       # Treatments tmt=1 (Seretide), tmt=2 (Fluticasone)
+        for (i in 1:4){                     # There are 4 non-absorbing health states
+            r[tmt, i, 1:5] ~ dmulti(pi[tmt,i,1:5], n[tmt,i])        # Multinomial data
             pi[tmt, i, 1:5] ~ ddirch(prior[tmt,i,1:5])      # Dirichlet prior for probs.
-
             for (j in 1:5){
-                rhat[tmt,i,j] &lt;- pi[tmt,i,j] * n[tmt,i]
+                rhat[tmt,i,j] &lt;- pi[tmt,i,j] * n[tmt,i] + smidge
                 dev[tmt,i,j] &lt;- 2*r[tmt,i,j] * log(r[tmt,i,j]/rhat[tmt,i,j])
             }
             resdev[tmt,i] &lt;- sum(dev[tmt,i,1:5])
         }
     }
 
-resdevtot&lt;- sum(resdev[1:2,1:4])
+  resdevtot &lt;- sum(resdev[1:2,1:4])
 }
 
 &quot; %&gt;% textConnection
 
-
-# Data: same as in random effects model above
-data &lt;- list(
-  r=structure(
-    .Data=c(
-      210,  60, 0,  1,  1,  
-      88,   641,    0,  4,  13, 
-       0,       0,  0,  0,  0,  
-       1,       0,  0,  0,  1,  
-      
-      66,       32, 0,  0,  2,  
-      42,     752,  0,  5,  20, 
-      0,        0,    0,    0,  0,  
-      0,        4,    0,    1,  0), 
-      .Dim=c(2,4,5)),
-  n=structure(
-    .Data=c(272,746,0,2,    100,819,0,5), 
-    .Dim=c(2,4)),
-  prior=structure(
-    .Data=c(1,1,1,1,1,  1,1,1,1,1,  1,1,1,1,1,  1,1,1,1,1,  
-                        1,1,1,1,1,  1,1,1,1,1,  1,1,1,1,1,  1,1,1,1,1), 
+## Modify data from earlier model
+data$n &lt;- matrix(c(rowSums(data$r[1,,]), rowSums(data$r[2,,])), nrow=2, byrow=TRUE)
+data$prior=structure(
+    .Data=rep(1, 2*4*5),
         .Dim=c(2,4,5))
+
+# Data: same as in model above
+
+# Pretend the WinBugs data structure is R:
+rpi &lt;- structure(
+        .Data=c(.6,.1,.1,.1,.1,
+                .1,.6,.1,.1,.1,
+                .1,.1,.6,.1,.1,
+                .1,.1,.1,.6,.1,
+  
+                        .6,.1,.1,.1,.1,
+                .1,.6,.1,.1,.1,
+                .1,.1,.6,.1,.1,
+                .1,.1,.1,.6,.1)
+        ,
+        .Dim=c(5,4,2) # reverse the dimensions
+      )
+
+# Swap to row-major order for JAGS. Start with a 3d array full of placeholder values:
+jpi &lt;- structure(
+  .Data=rep(-1, 2*4*5),     # -1 can&#39;t really happen
+  .Dim=c(2,4,5)             # Matrix dimensions
 )
 
+# Now copy in the numbers from the R array:
+for (tmt in 1:2){
+  for (i in 1:4){
+    for (j in 1:5){
+      jpi[tmt, i, j] &lt;- rpi[j, i, tmt]
+    }
+  }
+}
 
 # Starting/initial values: same as random effects model without sd
 initial_values &lt;- list(
-  #Inits
-  list(pi=structure(
-    .Data=c(.6,.1,.1,.1,.1, .1,.6,.1,.1,.1, .1,.1,.6,.1,.1, .1,.1,.1,.6,.1, 
-                    .6,.1,.1,.1,.1, .1,.6,.1,.1,.1, .1,.1,.6,.1,.1, .1,.1,.1,.6,.1), 
-    .Dim=c(2,4,5))
-  ),
+  # Inits
+  list( pi=jpi )
+  ,
   
-  #Alternative Inits
-  list(pi=structure(
-    .Data=c(.2,.2,.2,.2,.2, .2,.2,.2,.2,.2, .2,.2,.2,.2,.2, .2,.2,.2,.2,.2,
-                    .2,.2,.2,.2,.2, .2,.2,.2,.2,.2, .2,.2,.2,.2,.2, .2,.2,.2,.2,.2),
-    .Dim=c(2,4,5))
+  # Alternative Inits
+  list(
+    pi=structure(
+      .Data=rep(0.2, 2*4*5),
+      .Dim=c(2,4,5)
+    )
   )
   
 )
@@ -832,55 +971,332 @@ results &lt;- jags(data = data,
             n.adapt = 100,
             n.iter = 50000,
             n.burnin = 20000,
-            n.thin = 2)
-
-summary(results)</code></pre>
+            n.thin = 2)</code></pre>
+<pre><code>## 
+## Processing function input....... 
+## 
+## Done. 
+##  
+## Compiling data graph
+##    Resolving undeclared variables
+##    Allocating nodes
+##    Initializing
+##    Reading data back into data table
+## Compiling model graph
+##    Resolving undeclared variables
+##    Allocating nodes
+## Graph information:
+##    Observed stochastic nodes: 8
+##    Unobserved stochastic nodes: 8
+##    Total graph size: 372
+## 
+## Initializing model
+## 
+## Adaptive phase, 100 iterations x 2 chains 
+## If no progress bar appears JAGS has decided not to adapt 
+##  
+## 
+##  Burn-in phase, 20000 iterations x 2 chains 
+##  
+## 
+## Sampling from joint posterior, 30000 iterations x 2 chains 
+##  
+## 
+## Calculating statistics....... 
+## 
+## Done.</code></pre>
+<pre class="r"><code>summary(results)</code></pre>
+<pre><code>##                      mean          sd          2.5%           25%           50%
+## r[1,1,1]     2.100000e+02 0.000000000  2.100000e+02  2.100000e+02  2.100000e+02
+## r[2,1,1]     6.600000e+01 0.000000000  6.600000e+01  6.600000e+01  6.600000e+01
+## r[1,2,1]     8.800000e+01 0.000000000  8.800000e+01  8.800000e+01  8.800000e+01
+## r[2,2,1]     4.200000e+01 0.000000000  4.200000e+01  4.200000e+01  4.200000e+01
+## r[1,3,1]     0.000000e+00 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[2,3,1]     0.000000e+00 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[1,4,1]     1.000000e+00 0.000000000  1.000000e+00  1.000000e+00  1.000000e+00
+## r[2,4,1]     0.000000e+00 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[1,1,2]     6.000000e+01 0.000000000  6.000000e+01  6.000000e+01  6.000000e+01
+## r[2,1,2]     3.200000e+01 0.000000000  3.200000e+01  3.200000e+01  3.200000e+01
+## r[1,2,2]     6.410000e+02 0.000000000  6.410000e+02  6.410000e+02  6.410000e+02
+## r[2,2,2]     7.520000e+02 0.000000000  7.520000e+02  7.520000e+02  7.520000e+02
+## r[1,3,2]     0.000000e+00 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[2,3,2]     0.000000e+00 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[1,4,2]     0.000000e+00 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[2,4,2]     4.000000e+00 0.000000000  4.000000e+00  4.000000e+00  4.000000e+00
+## r[1,1,3]     0.000000e+00 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[2,1,3]     0.000000e+00 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[1,2,3]     0.000000e+00 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[2,2,3]     0.000000e+00 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[1,3,3]     0.000000e+00 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[2,3,3]     0.000000e+00 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[1,4,3]     0.000000e+00 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[2,4,3]     0.000000e+00 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[1,1,4]     1.000000e+00 0.000000000  1.000000e+00  1.000000e+00  1.000000e+00
+## r[2,1,4]     0.000000e+00 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[1,2,4]     4.000000e+00 0.000000000  4.000000e+00  4.000000e+00  4.000000e+00
+## r[2,2,4]     5.000000e+00 0.000000000  5.000000e+00  5.000000e+00  5.000000e+00
+## r[1,3,4]     0.000000e+00 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[2,3,4]     0.000000e+00 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[1,4,4]     0.000000e+00 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[2,4,4]     1.000000e+00 0.000000000  1.000000e+00  1.000000e+00  1.000000e+00
+## r[1,1,5]     1.000000e+00 0.000000000  1.000000e+00  1.000000e+00  1.000000e+00
+## r[2,1,5]     2.000000e+00 0.000000000  2.000000e+00  2.000000e+00  2.000000e+00
+## r[1,2,5]     1.300000e+01 0.000000000  1.300000e+01  1.300000e+01  1.300000e+01
+## r[2,2,5]     2.000000e+01 0.000000000  2.000000e+01  2.000000e+01  2.000000e+01
+## r[1,3,5]     0.000000e+00 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[2,3,5]     0.000000e+00 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[1,4,5]     1.000000e+00 0.000000000  1.000000e+00  1.000000e+00  1.000000e+00
+## r[2,4,5]     0.000000e+00 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## pi[1,1,1]    7.617050e-01 0.025654088  7.096169e-01  7.446272e-01  7.624841e-01
+## pi[2,1,1]    6.381158e-01 0.046446752  5.449402e-01  6.072692e-01  6.386806e-01
+## pi[1,2,1]    1.185350e-01 0.011814852  9.639231e-02  1.103530e-01  1.181746e-01
+## pi[2,2,1]    5.225256e-02 0.007833816  3.800192e-02  4.673720e-02  5.188056e-02
+## pi[1,3,1]    2.004422e-01 0.162861447  6.249357e-03  7.020628e-02  1.599604e-01
+## pi[2,3,1]    1.989205e-01 0.162515920  6.297308e-03  6.911275e-02  1.578886e-01
+## pi[1,4,1]    2.866062e-01 0.159638740  4.347089e-02  1.620346e-01  2.664835e-01
+## pi[2,4,1]    1.008284e-01 0.090187679  2.976625e-03  3.220485e-02  7.601867e-02
+## pi[1,1,2]    2.201668e-01 0.024942702  1.730503e-01  2.028610e-01  2.195371e-01
+## pi[2,1,2]    3.140908e-01 0.044884009  2.290011e-01  2.831952e-01  3.132348e-01
+## pi[1,2,2]    8.548517e-01 0.012886977  8.288995e-01  8.464184e-01  8.551839e-01
+## pi[2,2,2]    9.137356e-01 0.009827192  8.935557e-01  9.072701e-01  9.141270e-01
+## pi[1,3,2]    2.001061e-01 0.162720989  6.659554e-03  7.032837e-02  1.596878e-01
+## pi[2,3,2]    2.007657e-01 0.163677650  6.454481e-03  6.923795e-02  1.594154e-01
+## pi[1,4,2]    1.437109e-01 0.124772440  4.212525e-03  4.715024e-02  1.094823e-01
+## pi[2,4,2]    4.987321e-01 0.150586230  2.108725e-01  3.907946e-01  4.981912e-01
+## pi[1,1,3]    3.608592e-03 0.003587977  9.754329e-05  1.043464e-03  2.507562e-03
+## pi[2,1,3]    9.535094e-03 0.009415525  2.560156e-04  2.765393e-03  6.627535e-03
+## pi[1,2,3]    1.334452e-03 0.001328692  3.599115e-05  3.874976e-04  9.274671e-04
+## pi[2,2,3]    1.217841e-03 0.001215108  3.207432e-05  3.488454e-04  8.465783e-04
+## pi[1,3,3]    1.993290e-01 0.162614116  5.969373e-03  6.922102e-02  1.586837e-01
+## pi[2,3,3]    2.005688e-01 0.163592693  6.764188e-03  6.852826e-02  1.602514e-01
+## pi[1,4,3]    1.417889e-01 0.122863979  4.191358e-03  4.596943e-02  1.083446e-01
+## pi[2,4,3]    9.978637e-02 0.090291913  2.737076e-03  3.099747e-02  7.369132e-02
+## pi[1,1,4]    7.289714e-03 0.005147953  8.733253e-04  3.498165e-03  6.155902e-03
+## pi[2,1,4]    9.593891e-03 0.009488063  2.391175e-04  2.770307e-03  6.690811e-03
+## pi[1,2,4]    6.646679e-03 0.002953583  2.166383e-03  4.500586e-03  6.205355e-03
+## pi[2,2,4]    7.288983e-03 0.002972618  2.646786e-03  5.123789e-03  6.887545e-03
+## pi[1,3,4]    1.992749e-01 0.161887866  6.429320e-03  7.019006e-02  1.582500e-01
+## pi[2,3,4]    1.993722e-01 0.163262547  6.184125e-03  6.828441e-02  1.587754e-01
+## pi[1,4,4]    1.431444e-01 0.124444623  4.065459e-03  4.701684e-02  1.088039e-01
+## pi[2,4,4]    2.002847e-01 0.120672795  2.905450e-02  1.079476e-01  1.799208e-01
+## pi[1,1,5]    7.229907e-03 0.005074273  8.783125e-04  3.470385e-03  6.083444e-03
+## pi[2,1,5]    2.866442e-02 0.016170921  5.981309e-03  1.670956e-02  2.569300e-02
+## pi[1,2,5]    1.863218e-02 0.004948212  1.014543e-02  1.511980e-02  1.820483e-02
+## pi[2,2,5]    2.550499e-02 0.005470252  1.587477e-02  2.163076e-02  2.512830e-02
+## pi[1,3,5]    2.008477e-01 0.163594300  6.780477e-03  7.025463e-02  1.598231e-01
+## pi[2,3,5]    2.003729e-01 0.164082896  6.357523e-03  6.877378e-02  1.586212e-01
+## pi[1,4,5]    2.847496e-01 0.160036943  4.268375e-02  1.604209e-01  2.627636e-01
+## pi[2,4,5]    1.003684e-01 0.090306009  2.830657e-03  3.179249e-02  7.490104e-02
+## rhat[1,1,1]  2.071838e+02 6.977912014  1.930158e+02  2.025386e+02  2.073957e+02
+## rhat[2,1,1]  6.381158e+01 4.644675194  5.449402e+01  6.072692e+01  6.386806e+01
+## rhat[1,2,1]  8.842710e+01 8.813879639  7.190866e+01  8.232330e+01  8.815826e+01
+## rhat[2,2,1]  4.279485e+01 6.415894934  3.112357e+01  3.827777e+01  4.249018e+01
+## rhat[1,3,1] 2.225074e-308 0.000000000 2.225074e-308 2.225074e-308 2.225074e-308
+## rhat[2,3,1] 2.225074e-308 0.000000000 2.225074e-308 2.225074e-308 2.225074e-308
+## rhat[1,4,1]  5.732123e-01 0.319277479  8.694178e-02  3.240691e-01  5.329670e-01
+## rhat[2,4,1]  5.041422e-01 0.450938393  1.488313e-02  1.610243e-01  3.800933e-01
+## rhat[1,1,2]  5.988537e+01 6.784415042  4.706969e+01  5.517820e+01  5.971410e+01
+## rhat[2,1,2]  3.140908e+01 4.488400912  2.290011e+01  2.831952e+01  3.132348e+01
+## rhat[1,2,2]  6.377194e+02 9.613685213  6.183590e+02  6.314281e+02  6.379672e+02
+## rhat[2,2,2]  7.483495e+02 8.048470392  7.318221e+02  7.430542e+02  7.486701e+02
+## rhat[1,3,2] 2.225074e-308 0.000000000 2.225074e-308 2.225074e-308 2.225074e-308
+## rhat[2,3,2] 2.225074e-308 0.000000000 2.225074e-308 2.225074e-308 2.225074e-308
+## rhat[1,4,2]  2.874217e-01 0.249544881  8.425050e-03  9.430047e-02  2.189646e-01
+## rhat[2,4,2]  2.493660e+00 0.752931149  1.054362e+00  1.953973e+00  2.490956e+00
+## rhat[1,1,3]  9.815370e-01 0.975929669  2.653178e-02  2.838223e-01  6.820568e-01
+## rhat[2,1,3]  9.535094e-01 0.941552494  2.560156e-02  2.765393e-01  6.627535e-01
+## rhat[1,2,3]  9.955014e-01 0.991204380  2.684940e-02  2.890732e-01  6.918905e-01
+## rhat[2,2,3]  9.974114e-01 0.995173165  2.626887e-02  2.857044e-01  6.933476e-01
+## rhat[1,3,3] 2.225074e-308 0.000000000 2.225074e-308 2.225074e-308 2.225074e-308
+## rhat[2,3,3] 2.225074e-308 0.000000000 2.225074e-308 2.225074e-308 2.225074e-308
+## rhat[1,4,3]  2.835778e-01 0.245727957  8.382715e-03  9.193885e-02  2.166893e-01
+## rhat[2,4,3]  4.989318e-01 0.451459565  1.368538e-02  1.549873e-01  3.684566e-01
+## rhat[1,1,4]  1.982802e+00 1.400243152  2.375445e-01  9.515009e-01  1.674405e+00
+## rhat[2,1,4]  9.593891e-01 0.948806318  2.391175e-02  2.770307e-01  6.690811e-01
+## rhat[1,2,4]  4.958423e+00 2.203372678  1.616122e+00  3.357437e+00  4.629195e+00
+## rhat[2,2,4]  5.969677e+00 2.434573785  2.167717e+00  4.196383e+00  5.640899e+00
+## rhat[1,3,4] 2.225074e-308 0.000000000 2.225074e-308 2.225074e-308 2.225074e-308
+## rhat[2,3,4] 2.225074e-308 0.000000000 2.225074e-308 2.225074e-308 2.225074e-308
+## rhat[1,4,4]  2.862889e-01 0.248889245  8.130919e-03  9.403368e-02  2.176077e-01
+## rhat[2,4,4]  1.001424e+00 0.603363975  1.452725e-01  5.397381e-01  8.996042e-01
+## rhat[1,1,5]  1.966535e+00 1.380202241  2.389010e-01  9.439448e-01  1.654697e+00
+## rhat[2,1,5]  2.866442e+00 1.617092118  5.981309e-01  1.670956e+00  2.569300e+00
+## rhat[1,2,5]  1.389961e+01 3.691366237  7.568491e+00  1.127937e+01  1.358081e+01
+## rhat[2,2,5]  2.088859e+01 4.480136629  1.300144e+01  1.771559e+01  2.058007e+01
+## rhat[1,3,5] 2.225074e-308 0.000000000 2.225074e-308 2.225074e-308 2.225074e-308
+## rhat[2,3,5] 2.225074e-308 0.000000000 2.225074e-308 2.225074e-308 2.225074e-308
+## rhat[1,4,5]  5.694992e-01 0.320073885  8.536751e-02  3.208419e-01  5.255272e-01
+## rhat[2,4,5]  5.018419e-01 0.451530043  1.415328e-02  1.589624e-01  3.745052e-01
+## deviance     7.696432e+01 7.186154877  6.474662e+01  7.187333e+01  7.635411e+01
+##                       75%         97.5%      Rhat n.eff overlap0 f
+## r[1,1,1]     2.100000e+02  2.100000e+02        NA     1        0 1
+## r[2,1,1]     6.600000e+01  6.600000e+01        NA     1        0 1
+## r[1,2,1]     8.800000e+01  8.800000e+01        NA     1        0 1
+## r[2,2,1]     4.200000e+01  4.200000e+01        NA     1        0 1
+## r[1,3,1]     0.000000e+00  0.000000e+00        NA     1        1 1
+## r[2,3,1]     0.000000e+00  0.000000e+00        NA     1        1 1
+## r[1,4,1]     1.000000e+00  1.000000e+00        NA     1        0 1
+## r[2,4,1]     0.000000e+00  0.000000e+00        NA     1        1 1
+## r[1,1,2]     6.000000e+01  6.000000e+01        NA     1        0 1
+## r[2,1,2]     3.200000e+01  3.200000e+01        NA     1        0 1
+## r[1,2,2]     6.410000e+02  6.410000e+02        NA     1        0 1
+## r[2,2,2]     7.520000e+02  7.520000e+02        NA     1        0 1
+## r[1,3,2]     0.000000e+00  0.000000e+00        NA     1        1 1
+## r[2,3,2]     0.000000e+00  0.000000e+00        NA     1        1 1
+## r[1,4,2]     0.000000e+00  0.000000e+00        NA     1        1 1
+## r[2,4,2]     4.000000e+00  4.000000e+00        NA     1        0 1
+## r[1,1,3]     0.000000e+00  0.000000e+00        NA     1        1 1
+## r[2,1,3]     0.000000e+00  0.000000e+00        NA     1        1 1
+## r[1,2,3]     0.000000e+00  0.000000e+00        NA     1        1 1
+## r[2,2,3]     0.000000e+00  0.000000e+00        NA     1        1 1
+## r[1,3,3]     0.000000e+00  0.000000e+00        NA     1        1 1
+## r[2,3,3]     0.000000e+00  0.000000e+00        NA     1        1 1
+## r[1,4,3]     0.000000e+00  0.000000e+00        NA     1        1 1
+## r[2,4,3]     0.000000e+00  0.000000e+00        NA     1        1 1
+## r[1,1,4]     1.000000e+00  1.000000e+00        NA     1        0 1
+## r[2,1,4]     0.000000e+00  0.000000e+00        NA     1        1 1
+## r[1,2,4]     4.000000e+00  4.000000e+00        NA     1        0 1
+## r[2,2,4]     5.000000e+00  5.000000e+00        NA     1        0 1
+## r[1,3,4]     0.000000e+00  0.000000e+00        NA     1        1 1
+## r[2,3,4]     0.000000e+00  0.000000e+00        NA     1        1 1
+## r[1,4,4]     0.000000e+00  0.000000e+00        NA     1        1 1
+## r[2,4,4]     1.000000e+00  1.000000e+00        NA     1        0 1
+## r[1,1,5]     1.000000e+00  1.000000e+00        NA     1        0 1
+## r[2,1,5]     2.000000e+00  2.000000e+00        NA     1        0 1
+## r[1,2,5]     1.300000e+01  1.300000e+01        NA     1        0 1
+## r[2,2,5]     2.000000e+01  2.000000e+01        NA     1        0 1
+## r[1,3,5]     0.000000e+00  0.000000e+00        NA     1        1 1
+## r[2,3,5]     0.000000e+00  0.000000e+00        NA     1        1 1
+## r[1,4,5]     1.000000e+00  1.000000e+00        NA     1        0 1
+## r[2,4,5]     0.000000e+00  0.000000e+00        NA     1        1 1
+## pi[1,1,1]    7.794605e-01  8.098494e-01 0.9999788 30000        0 1
+## pi[2,1,1]    6.697791e-01  7.270891e-01 1.0002379  5538        0 1
+## pi[1,2,1]    1.263362e-01  1.424981e-01 1.0001055 30000        0 1
+## pi[2,2,1]    5.732526e-02  6.865814e-02 1.0001418 30000        0 1
+## pi[1,3,1]    2.920081e-01  5.989998e-01 1.0001455 23558        0 1
+## pi[2,3,1]    2.904722e-01  5.991968e-01 1.0000119 30000        0 1
+## pi[1,4,1]    3.922690e-01  6.411103e-01 1.0001842 16442        0 1
+## pi[2,4,1]    1.426488e-01  3.364035e-01 0.9999948 30000        0 1
+## pi[1,1,2]    2.366087e-01  2.710666e-01 0.9999870 30000        0 1
+## pi[2,1,2]    3.440101e-01  4.038677e-01 1.0002644  6174        0 1
+## pi[1,2,2]    8.636685e-01  8.793370e-01 1.0002589 30000        0 1
+## pi[2,2,2]    9.205688e-01  9.317172e-01 0.9999894 30000        0 1
+## pi[1,3,2]    2.905030e-01  5.988534e-01 1.0000231 27421        0 1
+## pi[2,3,2]    2.963293e-01  6.037973e-01 1.0000266 30000        0 1
+## pi[1,4,2]    2.066544e-01  4.612966e-01 1.0002108 30000        0 1
+## pi[2,4,2]    6.071877e-01  7.866257e-01 0.9999737 30000        0 1
+## pi[1,1,3]    5.022187e-03  1.313961e-02 1.0001609 11927        0 1
+## pi[2,1,3]    1.335412e-02  3.482902e-02 1.0000426 30000        0 1
+## pi[1,2,3]    1.852551e-03  4.840544e-03 1.0000565 24232        0 1
+## pi[2,2,3]    1.693609e-03  4.506024e-03 1.0000413 30000        0 1
+## pi[1,3,3]    2.942222e-01  5.966456e-01 1.0000211 30000        0 1
+## pi[2,3,3]    2.943429e-01  5.985381e-01 1.0001003 30000        0 1
+## pi[1,4,3]    2.051238e-01  4.589719e-01 0.9999729 30000        0 1
+## pi[2,4,3]    1.425664e-01  3.322341e-01 1.0000587 30000        0 1
+## pi[1,1,4]    9.814157e-03  2.017226e-02 1.0001689 30000        0 1
+## pi[2,1,4]    1.341001e-02  3.490554e-02 0.9999959 30000        0 1
+## pi[1,2,4]    8.329268e-03  1.358264e-02 1.0004958  4773        0 1
+## pi[2,2,4]    9.029016e-03  1.407707e-02 1.0001183 30000        0 1
+## pi[1,3,4]    2.917784e-01  5.996076e-01 1.0000255 26731        0 1
+## pi[2,3,4]    2.913974e-01  6.001165e-01 1.0000502 30000        0 1
+## pi[1,4,4]    2.078495e-01  4.625838e-01 1.0003576 14214        0 1
+## pi[2,4,4]    2.731926e-01  4.802732e-01 1.0002393 30000        0 1
+## pi[1,1,5]    9.774204e-03  2.004500e-02 1.0000086 30000        0 1
+## pi[2,1,5]    3.748065e-02  6.793462e-02 0.9999935 30000        0 1
+## pi[1,2,5]    2.166604e-02  2.961147e-02 0.9999924 30000        0 1
+## pi[2,2,5]    2.896870e-02  3.723849e-02 0.9999766 30000        0 1
+## pi[1,3,5]    2.938139e-01  6.057487e-01 1.0001899  7903        0 1
+## pi[2,3,5]    2.939027e-01  6.078715e-01 1.0000387 30000        0 1
+## pi[1,4,5]    3.888485e-01  6.414516e-01 0.9999780 30000        0 1
+## pi[2,4,5]    1.435562e-01  3.361678e-01 1.0001688  8605        0 1
+## rhat[1,1,1]  2.120133e+02  2.202790e+02 0.9999788 30000        0 1
+## rhat[2,1,1]  6.697791e+01  7.270891e+01 1.0002379  5538        0 1
+## rhat[1,2,1]  9.424680e+01  1.063036e+02 1.0001055 30000        0 1
+## rhat[2,2,1]  4.694939e+01  5.623102e+01 1.0001418 30000        0 1
+## rhat[1,3,1] 2.225074e-308 2.225074e-308        NA     1        0 1
+## rhat[2,3,1] 2.225074e-308 2.225074e-308        NA     1        0 1
+## rhat[1,4,1]  7.845379e-01  1.282221e+00 1.0001842 16442        0 1
+## rhat[2,4,1]  7.132440e-01  1.682017e+00 0.9999948 30000        0 1
+## rhat[1,1,2]  6.435757e+01  7.373012e+01 0.9999870 30000        0 1
+## rhat[2,1,2]  3.440101e+01  4.038677e+01 1.0002644  6174        0 1
+## rhat[1,2,2]  6.442967e+02  6.559854e+02 1.0002589 30000        0 1
+## rhat[2,2,2]  7.539458e+02  7.630764e+02 0.9999894 30000        0 1
+## rhat[1,3,2] 2.225074e-308 2.225074e-308        NA     1        0 1
+## rhat[2,3,2] 2.225074e-308 2.225074e-308        NA     1        0 1
+## rhat[1,4,2]  4.133087e-01  9.225933e-01 1.0002108 30000        0 1
+## rhat[2,4,2]  3.035938e+00  3.933128e+00 0.9999737 30000        0 1
+## rhat[1,1,3]  1.366035e+00  3.573974e+00 1.0001609 11927        0 1
+## rhat[2,1,3]  1.335412e+00  3.482902e+00 1.0000426 30000        0 1
+## rhat[1,2,3]  1.382003e+00  3.611046e+00 1.0000565 24232        0 1
+## rhat[2,2,3]  1.387066e+00  3.690434e+00 1.0000413 30000        0 1
+## rhat[1,3,3] 2.225074e-308 2.225074e-308        NA     1        0 1
+## rhat[2,3,3] 2.225074e-308 2.225074e-308        NA     1        0 1
+## rhat[1,4,3]  4.102476e-01  9.179437e-01 0.9999729 30000        0 1
+## rhat[2,4,3]  7.128319e-01  1.661171e+00 1.0000587 30000        0 1
+## rhat[1,1,4]  2.669451e+00  5.486856e+00 1.0001689 30000        0 1
+## rhat[2,1,4]  1.341001e+00  3.490554e+00 0.9999959 30000        0 1
+## rhat[1,2,4]  6.213634e+00  1.013265e+01 1.0004958  4773        0 1
+## rhat[2,2,4]  7.394764e+00  1.152912e+01 1.0001183 30000        0 1
+## rhat[1,3,4] 2.225074e-308 2.225074e-308        NA     1        0 1
+## rhat[2,3,4] 2.225074e-308 2.225074e-308        NA     1        0 1
+## rhat[1,4,4]  4.156990e-01  9.251676e-01 1.0003576 14214        0 1
+## rhat[2,4,4]  1.365963e+00  2.401366e+00 1.0002393 30000        0 1
+## rhat[1,1,5]  2.658584e+00  5.452240e+00 1.0000086 30000        0 1
+## rhat[2,1,5]  3.748065e+00  6.793462e+00 0.9999935 30000        0 1
+## rhat[1,2,5]  1.616286e+01  2.209016e+01 0.9999924 30000        0 1
+## rhat[2,2,5]  2.372537e+01  3.049833e+01 0.9999766 30000        0 1
+## rhat[1,3,5] 2.225074e-308 2.225074e-308        NA     1        0 1
+## rhat[2,3,5] 2.225074e-308 2.225074e-308        NA     1        0 1
+## rhat[1,4,5]  7.776969e-01  1.282903e+00 0.9999780 30000        0 1
+## rhat[2,4,5]  7.177811e-01  1.680839e+00 1.0001688  8605        0 1
+## deviance     8.140024e+01  9.280646e+01 0.9999705 30000        0 1</code></pre>
 </div>
 <div id="asthma_2" class="section level1">
 <h1><code>asthma_2</code></h1>
 <p>Propagating Uncertainty into a Decision Model</p>
 <pre class="r"><code># Model
 
+
+
 model_code &lt;- &quot;
 model{
-#Data analysis
-    for (tmt in 1:2){                                       #Treatments tmt=1 (Seretide), tmt=2 (Fluticasone)
-        for (i in 1:4){                                 #There are 4 non-absorbing health states
-            r[tmt,i,1:5] ~ dmulti(pi[tmt,i,1:5],n[tmt,i])       #Multinomial data
-            pi[tmt,i,1:5] ~ ddirch(prior[tmt,i,1:5])        #Dirichlet prior for probs.
+# Data analysis
+    for (tmt in 1:2){                                       # Treatments tmt=1 (Seretide), tmt=2 (Fluticasone)
+        for (i in 1:4){                                   # There are 4 non-absorbing health states
+            r[tmt,i,1:5] ~ dmulti(pi[tmt,i,1:5],n[tmt,i])       # Multinomial data
+            pi[tmt,i,1:5] ~ ddirch(prior[tmt,i,1:5])            # Dirichlet prior for probs.
         }
     }
-#Calculating summaries from a decision model
+# Calculating summaries from a decision model
     for (tmt in 1:2){ 
-        for (i in 1:5){ s[tmt,i,1]&lt;- equals(i,1) }      #Initialise starting state: 1 in STW, 0 in all other states
+        for (i in 1:5){ s[tmt,i,1]&lt;- equals(i,1) }      # Initialise starting state: 1 in STW, 0 in all other states
         for (i in 1:4){  
             for (t in 2:13){
-                s[tmt,i,t]&lt;- inprod(s[tmt,1:4,t-1], pi[tmt,1:4,i])  # Run the model for 12 cycles. 
+                s[tmt,i,t] &lt;- inprod(s[tmt,1:4,t-1], pi[tmt,1:4,i])     # Run the model for 12 cycles. 
                                                                             # s[tmt,i,t] = no. in state i at time t under treatment tmt
                 }
-            E[tmt,i]&lt;- sum(s[tmt,i,2:13])                           #Sum up time spent in state i
+            E[tmt,i] &lt;- sum(s[tmt,i,2:13])                          # Sum up time spent in state i
             }
-        E[tmt,5]&lt;- 12 - sum(E[tmt,1:4])                         #Time in TF = 12 minus time in other states.
+        E[tmt,5] &lt;- 12 - sum(E[tmt,1:4])                            # Time in TF = 12 minus time in other states.
     }
 
     for (i in 1:5){
-        D[i]&lt;- E[1,i] - E[2,i]                                      #Additional time in state i under Seretide rather than FT
-        prob[i]&lt;- step(D[i])                                        #Indicates whether Seretide gives longer time in state i
+        D[i] &lt;- E[1,i] - E[2,i]                                 # Additional time in state i under Seretide rather than FT
+        prob[i] &lt;- step(D[i])                                       # Indicates whether Seretide gives longer time in state i
     }
         
 }
 
 &quot; %&gt;% textConnection
 
-data &lt;- list(
-r=structure(.Data=c(210,60,0,1,1,   88,641,0,4,13,  0,0,0,0,0,  1,0,0,0,1,  
-                            66,32,0,0,2,    42,752,0,5,20,  0,0,0,0,0,  0,4,0,1,0), 
-                .Dim=c(2,4,5)),
-n=structure(.Data=c(272,746,0,2,    100,819,0,5), .Dim=c(2,4)),
-prior=structure(.Data=c(1,1,1,1,1,  1,1,1,1,1,  1,1,1,1,1,  1,1,1,1,1,  
-                            1,1,1,1,1,  1,1,1,1,1,  1,1,1,1,1,  1,1,1,1,1), 
-                .Dim=c(2,4,5))
-)
+data$prior &lt;- structure( .Data=rep(1, 2*4*5), .Dim=c(2,4,5))
+# data &lt;- list(
+# r=structure(.Data=c(210,60,0,1,1, 88,641,0,4,13,  0,0,0,0,0,  1,0,0,0,1,  
+#                           66,32,0,0,2,    42,752,0,5,20,  0,0,0,0,0,  0,4,0,1,0), 
+#               .Dim=c(2,4,5)),
+# n=structure(.Data=c(272,746,0,2,  100,819,0,5), .Dim=c(2,4)),
+# prior=structure( .Data=rep(1, 2*4*5), .Dim=c(2,4,5))
+# )
 
 
 initial_values &lt;- list(
@@ -899,7 +1315,7 @@ initial_values &lt;- list(
   
 )
 
-parameters_to_save &lt;- c(&quot;r&quot;, &quot;pi&quot;, &quot;s&quot;, &quot;E&quot;) # What else?
+parameters_to_save &lt;- c(&quot;r&quot;, &quot;pi&quot;, &quot;s&quot;, &quot;E&quot;, &#39;D&#39;, &#39;prob&#39;) # What else?
 
 
 results &lt;- jags(data = data,
@@ -940,402 +1356,525 @@ results &lt;- jags(data = data,
 ## 
 ## Done.</code></pre>
 <pre class="r"><code>summary(results)</code></pre>
-<pre><code>##                   mean          sd         2.5%          25%          50%
-## r[1,1,1]  2.100000e+02 0.000000000 2.100000e+02 2.100000e+02 2.100000e+02
-## r[2,1,1]  6.000000e+01 0.000000000 6.000000e+01 6.000000e+01 6.000000e+01
-## r[1,2,1]  0.000000e+00 0.000000000 0.000000e+00 0.000000e+00 0.000000e+00
-## r[2,2,1]  1.000000e+00 0.000000000 1.000000e+00 1.000000e+00 1.000000e+00
-## r[1,3,1]  1.000000e+00 0.000000000 1.000000e+00 1.000000e+00 1.000000e+00
-## r[2,3,1]  8.800000e+01 0.000000000 8.800000e+01 8.800000e+01 8.800000e+01
-## r[1,4,1]  6.410000e+02 0.000000000 6.410000e+02 6.410000e+02 6.410000e+02
-## r[2,4,1]  0.000000e+00 0.000000000 0.000000e+00 0.000000e+00 0.000000e+00
-## r[1,1,2]  4.000000e+00 0.000000000 4.000000e+00 4.000000e+00 4.000000e+00
-## r[2,1,2]  1.300000e+01 0.000000000 1.300000e+01 1.300000e+01 1.300000e+01
-## r[1,2,2]  0.000000e+00 0.000000000 0.000000e+00 0.000000e+00 0.000000e+00
-## r[2,2,2]  0.000000e+00 0.000000000 0.000000e+00 0.000000e+00 0.000000e+00
-## r[1,3,2]  0.000000e+00 0.000000000 0.000000e+00 0.000000e+00 0.000000e+00
-## r[2,3,2]  0.000000e+00 0.000000000 0.000000e+00 0.000000e+00 0.000000e+00
-## r[1,4,2]  0.000000e+00 0.000000000 0.000000e+00 0.000000e+00 0.000000e+00
-## r[2,4,2]  1.000000e+00 0.000000000 1.000000e+00 1.000000e+00 1.000000e+00
-## r[1,1,3]  0.000000e+00 0.000000000 0.000000e+00 0.000000e+00 0.000000e+00
-## r[2,1,3]  0.000000e+00 0.000000000 0.000000e+00 0.000000e+00 0.000000e+00
-## r[1,2,3]  0.000000e+00 0.000000000 0.000000e+00 0.000000e+00 0.000000e+00
-## r[2,2,3]  1.000000e+00 0.000000000 1.000000e+00 1.000000e+00 1.000000e+00
-## r[1,3,3]  6.600000e+01 0.000000000 6.600000e+01 6.600000e+01 6.600000e+01
-## r[2,3,3]  3.200000e+01 0.000000000 3.200000e+01 3.200000e+01 3.200000e+01
-## r[1,4,3]  0.000000e+00 0.000000000 0.000000e+00 0.000000e+00 0.000000e+00
-## r[2,4,3]  0.000000e+00 0.000000000 0.000000e+00 0.000000e+00 0.000000e+00
-## r[1,1,4]  2.000000e+00 0.000000000 2.000000e+00 2.000000e+00 2.000000e+00
-## r[2,1,4]  4.200000e+01 0.000000000 4.200000e+01 4.200000e+01 4.200000e+01
-## r[1,2,4]  7.520000e+02 0.000000000 7.520000e+02 7.520000e+02 7.520000e+02
-## r[2,2,4]  0.000000e+00 0.000000000 0.000000e+00 0.000000e+00 0.000000e+00
-## r[1,3,4]  5.000000e+00 0.000000000 5.000000e+00 5.000000e+00 5.000000e+00
-## r[2,3,4]  2.000000e+01 0.000000000 2.000000e+01 2.000000e+01 2.000000e+01
-## r[1,4,4]  0.000000e+00 0.000000000 0.000000e+00 0.000000e+00 0.000000e+00
-## r[2,4,4]  0.000000e+00 0.000000000 0.000000e+00 0.000000e+00 0.000000e+00
-## r[1,1,5]  0.000000e+00 0.000000000 0.000000e+00 0.000000e+00 0.000000e+00
-## r[2,1,5]  0.000000e+00 0.000000000 0.000000e+00 0.000000e+00 0.000000e+00
-## r[1,2,5]  0.000000e+00 0.000000000 0.000000e+00 0.000000e+00 0.000000e+00
-## r[2,2,5]  0.000000e+00 0.000000000 0.000000e+00 0.000000e+00 0.000000e+00
-## r[1,3,5]  4.000000e+00 0.000000000 4.000000e+00 4.000000e+00 4.000000e+00
-## r[2,3,5]  0.000000e+00 0.000000000 0.000000e+00 0.000000e+00 0.000000e+00
-## r[1,4,5]  1.000000e+00 0.000000000 1.000000e+00 1.000000e+00 1.000000e+00
-## r[2,4,5]  0.000000e+00 0.000000000 0.000000e+00 0.000000e+00 0.000000e+00
-## pi[1,1,1] 9.546716e-01 0.013952590 9.236785e-01 9.460605e-01 9.559873e-01
-## pi[2,1,1] 5.080991e-01 0.045455024 4.183058e-01 4.771277e-01 5.082650e-01
-## pi[1,2,1] 1.313762e-03 0.001312565 3.447877e-05 3.798458e-04 9.044619e-04
-## pi[2,2,1] 2.855217e-01 0.159601688 4.297401e-02 1.611696e-01 2.642978e-01
-## pi[1,3,1] 2.466332e-02 0.017125230 3.017643e-03 1.201834e-02 2.082465e-02
-## pi[2,3,1] 6.138722e-01 0.040340967 5.340871e-01 5.866156e-01 6.146812e-01
-## pi[1,4,1] 9.922712e-01 0.003467718 9.841942e-01 9.902829e-01 9.927956e-01
-## pi[2,4,1] 1.663195e-01 0.140241836 5.005005e-03 5.652774e-02 1.294106e-01
-## pi[1,1,2] 2.267455e-02 0.009963207 7.448453e-03 1.545356e-02 2.126028e-02
-## pi[2,1,2] 1.165586e-01 0.029096939 6.559063e-02 9.564834e-02 1.147042e-01
-## pi[1,2,2] 1.326075e-03 0.001342514 3.390774e-05 3.712251e-04 9.103777e-04
-## pi[2,2,2] 1.439156e-01 0.124708068 4.267715e-03 4.786336e-02 1.092421e-01
-## pi[1,3,2] 1.238211e-02 0.012194398 3.296247e-04 3.629949e-03 8.692267e-03
-## pi[2,3,2] 6.886427e-03 0.006851745 1.788998e-04 1.979947e-03 4.814055e-03
-## pi[1,4,2] 1.536739e-03 0.001542386 3.908595e-05 4.392230e-04 1.064286e-03
-## pi[2,4,2] 3.329452e-01 0.177207685 5.273213e-02 1.938019e-01 3.132741e-01
-## pi[1,1,3] 4.534671e-03 0.004463567 1.138657e-04 1.309423e-03 3.169507e-03
-## pi[2,1,3] 8.402162e-03 0.008302936 2.155820e-04 2.449173e-03 5.887977e-03
-## pi[1,2,3] 1.327701e-03 0.001327610 3.555912e-05 3.803104e-04 9.291654e-04
-## pi[2,2,3] 2.851705e-01 0.159651826 4.331068e-02 1.597147e-01 2.638782e-01
-## pi[1,3,3] 8.275361e-01 0.041574719 7.389987e-01 8.009406e-01 8.300618e-01
-## pi[2,3,3] 2.275092e-01 0.034697082 1.634921e-01 2.034735e-01 2.263295e-01
-## pi[1,4,3] 1.554409e-03 0.001562723 3.944654e-05 4.436899e-04 1.069347e-03
-## pi[2,4,3] 1.659922e-01 0.140839678 5.088397e-03 5.551635e-02 1.292295e-01
-## pi[1,1,4] 1.362669e-02 0.007815637 2.845701e-03 7.864623e-03 1.213991e-02
-## pi[2,1,4] 3.586860e-01 0.043493834 2.758842e-01 3.290051e-01 3.576920e-01
-## pi[1,2,4] 9.947120e-01 0.002662572 9.883878e-01 9.932386e-01 9.951584e-01
-## pi[2,2,4] 1.420589e-01 0.123924812 4.137071e-03 4.617367e-02 1.075797e-01
-## pi[1,3,4] 7.383164e-02 0.028747454 2.775950e-02 5.288064e-02 7.038448e-02
-## pi[2,3,4] 1.448278e-01 0.028874145 9.260594e-02 1.244159e-01 1.433108e-01
-## pi[1,4,4] 1.549338e-03 0.001558590 3.762693e-05 4.422695e-04 1.068911e-03
-## pi[2,4,4] 1.671405e-01 0.140577176 5.403623e-03 5.688777e-02 1.294823e-01
-## pi[1,1,5] 4.492464e-03 0.004473847 1.181924e-04 1.305619e-03 3.120171e-03
-## pi[2,1,5] 8.254106e-03 0.008154705 2.029592e-04 2.408982e-03 5.769056e-03
-## pi[1,2,5] 1.320446e-03 0.001325923 3.510466e-05 3.839737e-04 9.101529e-04
-## pi[2,2,5] 1.433333e-01 0.123991561 4.015039e-03 4.783981e-02 1.090190e-01
-## pi[1,3,5] 6.158686e-02 0.026638332 2.065254e-02 4.214993e-02 5.788989e-02
-## pi[2,3,5] 6.904452e-03 0.006869058 1.737048e-04 2.004539e-03 4.803942e-03
-## pi[1,4,5] 3.088311e-03 0.002188173 3.777336e-04 1.475060e-03 2.594410e-03
-## pi[2,4,5] 1.676026e-01 0.141696143 5.143179e-03 5.688992e-02 1.293868e-01
-## s[1,1,1]  1.000000e+00 0.000000000 1.000000e+00 1.000000e+00 1.000000e+00
-## s[2,1,1]  1.000000e+00 0.000000000 1.000000e+00 1.000000e+00 1.000000e+00
-## s[1,2,1]  0.000000e+00 0.000000000 0.000000e+00 0.000000e+00 0.000000e+00
-## s[2,2,1]  0.000000e+00 0.000000000 0.000000e+00 0.000000e+00 0.000000e+00
-## s[1,3,1]  0.000000e+00 0.000000000 0.000000e+00 0.000000e+00 0.000000e+00
-## s[2,3,1]  0.000000e+00 0.000000000 0.000000e+00 0.000000e+00 0.000000e+00
-## s[1,4,1]  0.000000e+00 0.000000000 0.000000e+00 0.000000e+00 0.000000e+00
-## s[2,4,1]  0.000000e+00 0.000000000 0.000000e+00 0.000000e+00 0.000000e+00
-## s[1,5,1]  0.000000e+00 0.000000000 0.000000e+00 0.000000e+00 0.000000e+00
-## s[2,5,1]  0.000000e+00 0.000000000 0.000000e+00 0.000000e+00 0.000000e+00
-## s[1,1,2]  9.546716e-01 0.013952590 9.236785e-01 9.460605e-01 9.559873e-01
-## s[2,1,2]  5.080991e-01 0.045455024 4.183058e-01 4.771277e-01 5.082650e-01
-## s[1,2,2]  2.267455e-02 0.009963207 7.448453e-03 1.545356e-02 2.126028e-02
-## s[2,2,2]  1.165586e-01 0.029096939 6.559063e-02 9.564834e-02 1.147042e-01
-## s[1,3,2]  4.534671e-03 0.004463567 1.138657e-04 1.309423e-03 3.169507e-03
-## s[2,3,2]  8.402162e-03 0.008302936 2.155820e-04 2.449173e-03 5.887977e-03
-## s[1,4,2]  1.362669e-02 0.007815637 2.845701e-03 7.864623e-03 1.213991e-02
-## s[2,4,2]  3.586860e-01 0.043493834 2.758842e-01 3.290051e-01 3.576920e-01
-## s[1,1,3]  9.252561e-01 0.023192793 8.732515e-01 9.109833e-01 9.274363e-01
-## s[2,1,3]  3.583623e-01 0.065811338 2.417013e-01 3.117728e-01 3.536794e-01
-## s[1,2,3]  2.165653e-02 0.009227271 7.319410e-03 1.496028e-02 2.044758e-02
-## s[2,2,3]  1.949980e-01 0.067733306 8.536787e-02 1.434922e-01 1.878732e-01
-## s[1,3,3]  8.112488e-03 0.007899476 2.546048e-04 2.387357e-03 5.716141e-03
-## s[2,3,3]  9.884994e-02 0.055102984 2.343906e-02 5.766877e-02 8.773325e-02
-## s[1,4,3]  3.586055e-02 0.012153680 1.588413e-02 2.708987e-02 3.457336e-02
-## s[2,4,3]  2.585050e-01 0.055646097 1.824535e-01 2.176339e-01 2.465101e-01
-## s[1,1,4]  9.194379e-01 0.024836996 8.644154e-01 9.042683e-01 9.216421e-01
-## s[2,1,4]  3.410367e-01 0.069839624 2.121538e-01 2.914797e-01 3.389178e-01
-## s[1,2,4]  2.097790e-02 0.008682445 7.272996e-03 1.465835e-02 1.991755e-02
-## s[2,2,4]  1.553524e-01 0.057586946 6.533239e-02 1.129571e-01 1.487305e-01
-## s[1,3,4]  1.096246e-02 0.010582066 3.976389e-04 3.277851e-03 7.755394e-03
-## s[2,3,4]  1.219699e-01 0.055483986 3.275572e-02 8.010798e-02 1.159160e-01
-## s[1,4,4]  3.474964e-02 0.011268616 1.583833e-02 2.659041e-02 3.368365e-02
-## s[2,4,4]  2.191985e-01 0.056006587 1.412652e-01 1.798307e-01 2.087012e-01
-## s[1,1,5]  9.128608e-01 0.027712239 8.507991e-01 8.961529e-01 9.156062e-01
-## s[2,1,5]  3.294334e-01 0.071890388 1.905460e-01 2.793285e-01 3.296805e-01
-## s[1,2,5]  2.089347e-02 0.008677723 7.256075e-03 1.457406e-02 1.981107e-02
-## s[2,2,5]  1.364440e-01 0.051744590 5.668727e-02 9.927492e-02 1.299906e-01
-## s[1,3,5]  1.328904e-02 0.012764150 5.121705e-04 3.994353e-03 9.417033e-03
-## s[2,3,5]  1.085080e-01 0.047065359 3.034038e-02 7.311644e-02 1.045291e-01
-## s[1,4,5]  3.420265e-02 0.010855955 1.585998e-02 2.637704e-02 3.321687e-02
-## s[2,4,5]  2.039593e-01 0.052198470 1.268642e-01 1.694916e-01 1.959970e-01
-## s[1,1,6]  9.061155e-01 0.031056446 8.356396e-01 8.877256e-01 9.095772e-01
-## s[2,1,6]  3.076685e-01 0.075561380 1.604142e-01 2.556026e-01 3.081849e-01
-## s[1,2,6]  2.077811e-02 0.008639060 7.226040e-03 1.448611e-02 1.968475e-02
-## s[2,2,6]  1.274457e-01 0.049587368 4.966063e-02 9.186874e-02 1.217596e-01
-## s[1,3,6]  1.518536e-02 0.014538957 6.049024e-04 4.593034e-03 1.079399e-02
-## s[2,3,6]  9.829261e-02 0.044286652 2.644108e-02 6.504889e-02 9.376276e-02
-## s[1,4,6]  3.419475e-02 0.010840663 1.591478e-02 2.638157e-02 3.318000e-02
-## s[2,4,6]  1.924514e-01 0.052631481 1.091618e-01 1.576492e-01 1.860512e-01
-## s[1,1,7]  8.997367e-01 0.034404868 8.207552e-01 8.798580e-01 9.040531e-01
-## s[2,1,7]  2.864273e-01 0.080243628 1.320578e-01 2.301828e-01 2.864212e-01
-## s[1,2,7]  2.064922e-02 0.008583226 7.202726e-03 1.439316e-02 1.956070e-02
-## s[2,2,7]  1.200510e-01 0.049528307 4.241621e-02 8.423230e-02 1.140725e-01
-## s[1,3,7]  1.672850e-02 0.015982077 6.728889e-04 5.087848e-03 1.191520e-02
-## s[2,3,7]  9.204327e-02 0.044322119 2.273762e-02 5.865705e-02 8.654312e-02
-## s[1,4,7]  3.412257e-02 0.010789945 1.595123e-02 2.635787e-02 3.309397e-02
-## s[2,4,7]  1.793901e-01 0.054256333 9.110857e-02 1.431704e-01 1.737549e-01
-## s[1,1,8]  8.936330e-01 0.037738819 8.062415e-01 8.722553e-01 8.987946e-01
-## s[2,1,8]  2.677619e-01 0.084388616 1.081795e-01 2.075787e-01 2.671550e-01
-## s[1,2,8]  2.052462e-02 0.008533869 7.175685e-03 1.429074e-02 1.944224e-02
-## s[2,2,8]  1.122507e-01 0.049082849 3.575345e-02 7.673658e-02 1.060335e-01
-## s[1,3,8]  1.798251e-02 0.017155609 7.340401e-04 5.481848e-03 1.281138e-02
-## s[2,3,8]  8.676364e-02 0.044296571 1.921214e-02 5.318058e-02 8.063279e-02
-## s[1,4,8]  3.401564e-02 0.010729532 1.594172e-02 2.631031e-02 3.299474e-02
-## s[2,4,8]  1.674590e-01 0.055886804 7.485036e-02 1.296045e-01 1.626036e-01
-## s[1,1,9]  8.877491e-01 0.041041683 7.918751e-01 8.646831e-01 8.936156e-01
-## s[2,1,9]  2.510475e-01 0.087700324 8.836697e-02 1.873032e-01 2.494924e-01
-## s[1,2,9]  2.040269e-02 0.008488335 7.128358e-03 1.419816e-02 1.932996e-02
-## s[2,2,9]  1.051014e-01 0.048685277 3.010221e-02 6.984099e-02 9.863037e-02
-## s[1,3,9]  1.899919e-02 0.018108689 7.836993e-04 5.807030e-03 1.352935e-02
-## s[2,3,9]  8.164280e-02 0.043930994 1.614898e-02 4.812695e-02 7.505857e-02
-## s[1,4,9]  3.389542e-02 0.010675962 1.592607e-02 2.625233e-02 3.287897e-02
-## s[2,4,9]  1.566943e-01 0.057200866 6.148707e-02 1.172022e-01 1.523261e-01
-## s[1,1,10] 8.820552e-01 0.044298610 7.778301e-01 8.574635e-01 8.887118e-01
-## s[2,1,10] 2.357719e-01 0.090293948 7.208385e-02 1.690186e-01 2.332009e-01
-## s[1,2,10] 2.028268e-02 0.008445280 7.081293e-03 1.411319e-02 1.921770e-02
-## s[2,2,10] 9.860840e-02 0.048283101 2.507275e-02 6.363954e-02 9.200995e-02
-## s[1,3,10] 1.982059e-02 0.018880539 8.203293e-04 6.066938e-03 1.411315e-02
-## s[2,3,10] 7.686665e-02 0.043489775 1.353193e-02 4.349815e-02 6.981836e-02
-## s[1,4,10] 3.376359e-02 0.010626545 1.590419e-02 2.617025e-02 3.275619e-02
-## s[2,4,10] 1.469666e-01 0.058291651 5.011330e-02 1.057084e-01 1.427295e-01
-## s[1,1,11] 8.765254e-01 0.047503371 7.642179e-01 8.503072e-01 8.839859e-01
-## s[2,1,11] 2.217614e-01 0.092281527 5.884834e-02 1.522875e-01 2.177530e-01
-## s[1,2,11] 2.016452e-02 0.008404548 7.034809e-03 1.402541e-02 1.911301e-02
-## s[2,2,11] 9.270710e-02 0.047918576 2.072885e-02 5.787478e-02 8.588411e-02
-## s[1,3,11] 2.048097e-02 0.019502747 8.538116e-04 6.274560e-03 1.459323e-02
-## s[2,3,11] 7.249058e-02 0.043053093 1.123590e-02 3.922990e-02 6.511558e-02
-## s[1,4,11] 3.362221e-02 0.010580236 1.584403e-02 2.606071e-02 3.263527e-02
-## s[2,4,11] 1.380611e-01 0.059124944 4.104998e-02 9.543461e-02 1.333912e-01
-## s[1,1,12] 8.711385e-01 0.050653802 7.502214e-01 8.434585e-01 8.793987e-01
-## s[2,1,12] 2.089036e-01 0.093743682 4.801673e-02 1.371335e-01 2.037120e-01
-## s[1,2,12] 2.004808e-02 0.008365914 6.995632e-03 1.394241e-02 1.899434e-02
-## s[2,2,12] 8.728284e-02 0.047515213 1.717874e-02 5.242439e-02 8.011216e-02
-## s[1,3,12] 2.100834e-02 0.020000904 8.781592e-04 6.436292e-03 1.498471e-02
-## s[2,3,12] 6.847671e-02 0.042605050 9.340671e-03 3.528841e-02 6.075410e-02
-## s[1,4,12] 3.347344e-02 0.010536870 1.577478e-02 2.593197e-02 3.248472e-02
-## s[2,4,12] 1.299090e-01 0.059730686 3.346351e-02 8.613763e-02 1.246806e-01
-## s[1,1,13] 8.658766e-01 0.053749562 7.368236e-01 8.367293e-01 8.747670e-01
-## s[2,1,13] 1.970882e-01 0.094755446 3.881837e-02 1.235097e-01 1.903715e-01
-## s[1,2,13] 1.993323e-02 0.008329153 6.938483e-03 1.384774e-02 1.887098e-02
-## s[2,2,13] 8.229786e-02 0.047085350 1.415863e-02 4.749326e-02 7.492275e-02
-## s[1,3,13] 2.142561e-02 0.020395862 8.938090e-04 6.567657e-03 1.528607e-02
-## s[2,3,13] 6.477221e-02 0.042127466 7.762697e-03 3.186403e-02 5.665877e-02
-## s[1,4,13] 3.331896e-02 0.010496230 1.571034e-02 2.581699e-02 3.230703e-02
-## s[2,4,13] 1.224238e-01 0.060115113 2.738489e-02 7.776507e-02 1.165793e-01
-## E[1,1]    1.079506e+01 0.418573027 9.830532e+00 1.055382e+01 1.085008e+01
-## E[2,1]    3.513362e+00 0.878969222 1.908392e+00 2.878892e+00 3.485901e+00
-## E[1,2]    2.489856e-01 0.104242896 8.631592e-02 1.730156e-01 2.355843e-01
-## E[2,2]    1.429098e+00 0.544869217 5.776518e-01 1.032644e+00 1.363013e+00
-## E[1,3]    1.885297e-01 0.179839557 7.554358e-03 5.744470e-02 1.343743e-01
-## E[2,3]    9.790785e-01 0.489948313 2.369924e-01 6.079790e-01 9.084363e-01
-## E[1,4]    3.888461e-01 0.124386961 1.811931e-01 2.992261e-01 3.767008e-01
-## E[2,4]    2.273704e+00 0.593297785 1.347787e+00 1.864393e+00 2.199682e+00
-## E[1,5]    3.785821e-01 0.312641833 4.087092e-02 1.539273e-01 2.908005e-01
-## E[2,5]    3.804757e+00 1.728599138 9.025329e-01 2.456582e+00 3.695668e+00
-## deviance            NA          NA           NA           NA           NA
-##                    75%        97.5%      Rhat n.eff overlap0  f
-## r[1,1,1]  2.100000e+02 2.100000e+02        NA     1        0  1
-## r[2,1,1]  6.000000e+01 6.000000e+01        NA     1        0  1
-## r[1,2,1]  0.000000e+00 0.000000e+00        NA     1        1  1
-## r[2,2,1]  1.000000e+00 1.000000e+00        NA     1        0  1
-## r[1,3,1]  1.000000e+00 1.000000e+00        NA     1        0  1
-## r[2,3,1]  8.800000e+01 8.800000e+01        NA     1        0  1
-## r[1,4,1]  6.410000e+02 6.410000e+02        NA     1        0  1
-## r[2,4,1]  0.000000e+00 0.000000e+00        NA     1        1  1
-## r[1,1,2]  4.000000e+00 4.000000e+00        NA     1        0  1
-## r[2,1,2]  1.300000e+01 1.300000e+01        NA     1        0  1
-## r[1,2,2]  0.000000e+00 0.000000e+00        NA     1        1  1
-## r[2,2,2]  0.000000e+00 0.000000e+00        NA     1        1  1
-## r[1,3,2]  0.000000e+00 0.000000e+00        NA     1        1  1
-## r[2,3,2]  0.000000e+00 0.000000e+00        NA     1        1  1
-## r[1,4,2]  0.000000e+00 0.000000e+00        NA     1        1  1
-## r[2,4,2]  1.000000e+00 1.000000e+00        NA     1        0  1
-## r[1,1,3]  0.000000e+00 0.000000e+00        NA     1        1  1
-## r[2,1,3]  0.000000e+00 0.000000e+00        NA     1        1  1
-## r[1,2,3]  0.000000e+00 0.000000e+00        NA     1        1  1
-## r[2,2,3]  1.000000e+00 1.000000e+00        NA     1        0  1
-## r[1,3,3]  6.600000e+01 6.600000e+01        NA     1        0  1
-## r[2,3,3]  3.200000e+01 3.200000e+01        NA     1        0  1
-## r[1,4,3]  0.000000e+00 0.000000e+00        NA     1        1  1
-## r[2,4,3]  0.000000e+00 0.000000e+00        NA     1        1  1
-## r[1,1,4]  2.000000e+00 2.000000e+00        NA     1        0  1
-## r[2,1,4]  4.200000e+01 4.200000e+01        NA     1        0  1
-## r[1,2,4]  7.520000e+02 7.520000e+02        NA     1        0  1
-## r[2,2,4]  0.000000e+00 0.000000e+00        NA     1        1  1
-## r[1,3,4]  5.000000e+00 5.000000e+00        NA     1        0  1
-## r[2,3,4]  2.000000e+01 2.000000e+01        NA     1        0  1
-## r[1,4,4]  0.000000e+00 0.000000e+00        NA     1        1  1
-## r[2,4,4]  0.000000e+00 0.000000e+00        NA     1        1  1
-## r[1,1,5]  0.000000e+00 0.000000e+00        NA     1        1  1
-## r[2,1,5]  0.000000e+00 0.000000e+00        NA     1        1  1
-## r[1,2,5]  0.000000e+00 0.000000e+00        NA     1        1  1
-## r[2,2,5]  0.000000e+00 0.000000e+00        NA     1        1  1
-## r[1,3,5]  4.000000e+00 4.000000e+00        NA     1        0  1
-## r[2,3,5]  0.000000e+00 0.000000e+00        NA     1        1  1
-## r[1,4,5]  1.000000e+00 1.000000e+00        NA     1        0  1
-## r[2,4,5]  0.000000e+00 0.000000e+00        NA     1        1  1
-## pi[1,1,1] 9.646621e-01 9.780403e-01 1.0000038 30000        0  1
-## pi[2,1,1] 5.391431e-01 5.963245e-01 1.0000110 30000        0  1
-## pi[1,2,1] 1.819404e-03 4.813172e-03 1.0000592 30000        0  1
-## pi[2,2,1] 3.894839e-01 6.416722e-01 1.0001590 17788        0  1
-## pi[1,3,1] 3.329304e-02 6.772078e-02 1.0000759 30000        0  1
-## pi[2,3,1] 6.418596e-01 6.911208e-01 1.0000040 30000        0  1
-## pi[1,4,1] 9.948016e-01 9.975231e-01 1.0000690 30000        0  1
-## pi[2,4,1] 2.418206e-01 5.162057e-01 1.0000595 30000        0  1
-## pi[1,1,2] 2.843375e-02 4.599855e-02 1.0000247 30000        0  1
-## pi[2,1,2] 1.349384e-01 1.795992e-01 1.0001100 10509        0  1
-## pi[1,2,2] 1.831491e-03 4.922350e-03 1.0000550 30000        0  1
-## pi[2,2,2] 2.063968e-01 4.645245e-01 1.0000217 30000        0  1
-## pi[1,3,2] 1.724601e-02 4.515622e-02 1.0000164 30000        0  1
-## pi[2,3,2] 9.581727e-03 2.518613e-02 0.9999814 30000        0  1
-## pi[1,4,2] 2.128001e-03 5.666675e-03 1.0001764 30000        0  1
-## pi[2,4,2] 4.537767e-01 7.152476e-01 1.0000051 30000        0  1
-## pi[1,1,3] 6.322511e-03 1.648217e-02 0.9999733 30000        0  1
-## pi[2,1,3] 1.170537e-02 3.083775e-02 0.9999728 30000        0  1
-## pi[1,2,3] 1.839022e-03 4.905285e-03 0.9999901 30000        0  1
-## pi[2,2,3] 3.900864e-01 6.369422e-01 1.0000029 30000        0  1
-## pi[1,3,3] 8.570505e-01 9.006284e-01 1.0001386 30000        0  1
-## pi[2,3,3] 2.499916e-01 2.989715e-01 1.0000569 17470        0  1
-## pi[1,4,3] 2.164236e-03 5.772935e-03 1.0002428 13787        0  1
-## pi[2,4,3] 2.397812e-01 5.249011e-01 0.9999905 30000        0  1
-## pi[1,1,4] 1.779892e-02 3.273682e-02 0.9999751 30000        0  1
-## pi[2,1,4] 3.876966e-01 4.464230e-01 1.0002211  5935        0  1
-## pi[1,2,4] 9.966594e-01 9.985702e-01 1.0000461 18936        0  1
-## pi[2,2,4] 2.051137e-01 4.589075e-01 1.0001105 11479        0  1
-## pi[1,3,4] 9.097660e-02 1.392553e-01 1.0001102 30000        0  1
-## pi[2,3,4] 1.636657e-01 2.054770e-01 0.9999822 30000        0  1
-## pi[1,4,4] 2.140148e-03 5.758356e-03 0.9999896 30000        0  1
-## pi[2,4,4] 2.416911e-01 5.225268e-01 1.0004524 12105        0  1
-## pi[1,1,5] 6.226693e-03 1.652438e-02 1.0000705 23662        0  1
-## pi[2,1,5] 1.145553e-02 3.023551e-02 1.0000627 30000        0  1
-## pi[1,2,5] 1.835055e-03 4.884040e-03 1.0001550  8071        0  1
-## pi[2,2,5] 2.068225e-01 4.575712e-01 1.0000077 30000        0  1
-## pi[1,3,5] 7.700552e-02 1.230083e-01 0.9999733 30000        0  1
-## pi[2,3,5] 9.602128e-03 2.547731e-02 0.9999719 30000        0  1
-## pi[1,4,5] 4.158301e-03 8.584009e-03 0.9999874 30000        0  1
-## pi[2,4,5] 2.432334e-01 5.266040e-01 1.0000650 30000        0  1
-## s[1,1,1]  1.000000e+00 1.000000e+00        NA     1        0  1
-## s[2,1,1]  1.000000e+00 1.000000e+00        NA     1        0  1
-## s[1,2,1]  0.000000e+00 0.000000e+00        NA     1        1  1
-## s[2,2,1]  0.000000e+00 0.000000e+00        NA     1        1  1
-## s[1,3,1]  0.000000e+00 0.000000e+00        NA     1        1  1
-## s[2,3,1]  0.000000e+00 0.000000e+00        NA     1        1  1
-## s[1,4,1]  0.000000e+00 0.000000e+00        NA     1        1  1
-## s[2,4,1]  0.000000e+00 0.000000e+00        NA     1        1  1
-## s[1,5,1]  0.000000e+00 0.000000e+00        NA     1        1  1
-## s[2,5,1]  0.000000e+00 0.000000e+00        NA     1        1  1
-## s[1,1,2]  9.646621e-01 9.780403e-01 1.0000038 30000        0  1
-## s[2,1,2]  5.391431e-01 5.963245e-01 1.0000110 30000        0  1
-## s[1,2,2]  2.843375e-02 4.599855e-02 1.0000247 30000        0  1
-## s[2,2,2]  1.349384e-01 1.795992e-01 1.0001100 10509        0  1
-## s[1,3,2]  6.322511e-03 1.648217e-02 0.9999733 30000        0  1
-## s[2,3,2]  1.170537e-02 3.083775e-02 0.9999728 30000        0  1
-## s[1,4,2]  1.779892e-02 3.273682e-02 0.9999751 30000        0  1
-## s[2,4,2]  3.876966e-01 4.464230e-01 1.0002211  5935        0  1
-## s[1,1,3]  9.418946e-01 9.641992e-01 1.0000199 30000        0  1
-## s[2,1,3]  4.003227e-01 4.988584e-01 1.0000009 30000        0  1
-## s[1,2,3]  2.709733e-02 4.296267e-02 1.0000118 30000        0  1
-## s[2,2,3]  2.397949e-01 3.418213e-01 0.9999946 30000        0  1
-## s[1,3,3]  1.131984e-02 2.924381e-02 0.9999747 30000        0  1
-## s[2,3,3]  1.284670e-01 2.329994e-01 0.9999942 30000        0  1
-## s[1,4,3]  4.325718e-02 6.298146e-02 1.0000220 30000        0  1
-## s[2,4,3]  2.878538e-01 3.944595e-01 1.0002284 30000        0  1
-## s[1,1,4]  9.372218e-01 9.609576e-01 1.0000129 30000        0  1
-## s[2,1,4]  3.887174e-01 4.820252e-01 0.9999915 30000        0  1
-## s[1,2,4]  2.620214e-02 4.080541e-02 1.0000026 30000        0  1
-## s[2,2,4]  1.896897e-01 2.856279e-01 0.9999781 30000        0  1
-## s[1,3,4]  1.528301e-02 3.923994e-02 0.9999751 30000        0  1
-## s[2,3,4]  1.578574e-01 2.431161e-01 1.0000131 30000        0  1
-## s[1,4,4]  4.174709e-02 5.965407e-02 1.0000112 30000        0  1
-## s[2,4,4]  2.462226e-01 3.589560e-01 1.0004849 10093        0  1
-## s[1,1,5]  9.327643e-01 9.583686e-01 1.0000150 30000        0  1
-## s[2,1,5]  3.788423e-01 4.691622e-01 0.9999868 30000        0  1
-## s[1,2,5]  2.607533e-02 4.080859e-02 1.0000036 30000        0  1
-## s[2,2,5]  1.652060e-01 2.567287e-01 0.9999708 30000        0  1
-## s[1,3,5]  1.850253e-02 4.749253e-02 0.9999746 30000        0  1
-## s[2,3,5]  1.400351e-01 2.080154e-01 1.0000747 15025        0  1
-## s[1,4,5]  4.098933e-02 5.805119e-02 1.0000023 30000        0  1
-## s[2,4,5]  2.280087e-01 3.332834e-01 1.0005588 12255        0  1
-## s[1,1,6]  9.285325e-01 9.561114e-01 1.0000195 30000        0  1
-## s[2,1,6]  3.596969e-01 4.544798e-01 0.9999751 30000        0  1
-## s[1,2,6]  2.593438e-02 4.061383e-02 1.0000032 30000        0  1
-## s[2,2,6]  1.560800e-01 2.399794e-01 0.9999853 30000        0  1
-## s[1,3,6]  2.112578e-02 5.404118e-02 0.9999738 30000        0  1
-## s[2,3,6]  1.271350e-01 1.942348e-01 1.0000892 13559        0  1
-## s[1,4,6]  4.095879e-02 5.808539e-02 1.0000018 30000        0  1
-## s[2,4,6]  2.184791e-01 3.175790e-01 1.0004829 14628        0  1
-## s[1,1,7]  9.245081e-01 9.540242e-01 1.0000233 30000        0  1
-## s[2,1,7]  3.418370e-01 4.429859e-01 0.9999744 30000        0  1
-## s[1,2,7]  2.577608e-02 4.037312e-02 1.0000021 30000        0  1
-## s[2,2,7]  1.488334e-01 2.322343e-01 0.9999857 30000        0  1
-## s[1,3,7]  2.326679e-02 5.936913e-02 0.9999729 30000        0  1
-## s[2,3,7]  1.200595e-01 1.908061e-01 1.0000726 15231        0  1
-## s[1,4,7]  4.086872e-02 5.789622e-02 1.0000006 30000        0  1
-## s[2,4,7]  2.077768e-01 3.053681e-01 1.0003975 14860        0  1
-## s[1,1,8]  9.208196e-01 9.520030e-01 1.0000266 30000        0  1
-## s[2,1,8]  3.266399e-01 4.324641e-01 0.9999751 30000        0  1
-## s[1,2,8]  2.562924e-02 4.008675e-02 1.0000013 30000        0  1
-## s[2,2,8]  1.407359e-01 2.236719e-01 0.9999892 30000        0  1
-## s[1,3,8]  2.504272e-02 6.383358e-02 0.9999720 30000        0  1
-## s[2,3,8]  1.143761e-01 1.867720e-01 1.0000664 16039        0  1
-## s[1,4,8]  4.071575e-02 5.766221e-02 0.9999991 30000        0  1
-## s[2,4,8]  1.979547e-01 2.944676e-01 1.0003337 15525        0  1
-## s[1,1,9]  9.172904e-01 9.501944e-01 1.0000294 30000        0  1
-## s[2,1,9]  3.128589e-01 4.231970e-01 0.9999763 30000        0  1
-## s[1,2,9]  2.546463e-02 3.990211e-02 1.0000006 30000        0  1
-## s[2,2,9]  1.332728e-01 2.156793e-01 0.9999900 30000        0  1
-## s[1,3,9]  2.644099e-02 6.747516e-02 0.9999712 30000        0  1
-## s[2,3,9]  1.088264e-01 1.818646e-01 1.0000672 16044        0  1
-## s[1,4,9]  4.055076e-02 5.735795e-02 0.9999980 30000        0  1
-## s[2,4,9]  1.892888e-01 2.845642e-01 1.0002757 16833        0  1
-## s[1,1,10] 9.140045e-01 9.485828e-01 1.0000318 28811        0  1
-## s[2,1,10] 2.996911e-01 4.145130e-01 0.9999777 30000        0  1
-## s[1,2,10] 2.532018e-02 3.973193e-02 1.0000000 30000        0  1
-## s[2,2,10] 1.262626e-01 2.087357e-01 0.9999925 30000        0  1
-## s[1,3,10] 2.762122e-02 7.045473e-02 0.9999705 30000        0  1
-## s[2,3,10] 1.035220e-01 1.772798e-01 1.0000664 16191        0  1
-## s[1,4,10] 4.038099e-02 5.712866e-02 0.9999971 30000        0  1
-## s[2,4,10] 1.809739e-01 2.752032e-01 1.0002365 18212        0  1
-## s[1,1,11] 9.107640e-01 9.469499e-01 1.0000339 27611        0  1
-## s[2,1,11] 2.874298e-01 4.062843e-01 0.9999795 30000        0  1
-## s[1,2,11] 2.518208e-02 3.955451e-02 0.9999993 30000        0  1
-## s[2,2,11] 1.201757e-01 2.024149e-01 0.9999922 30000        0  1
-## s[1,3,11] 2.852127e-02 7.262171e-02 0.9999699 30000        0  1
-## s[2,3,11] 9.849604e-02 1.729917e-01 1.0000631 16601        0  1
-## s[1,4,11] 4.019193e-02 5.689467e-02 0.9999963 30000        0  1
-## s[2,4,11] 1.733860e-01 2.666040e-01 1.0002048 19631        0  1
-## s[1,1,12] 9.076610e-01 9.456241e-01 1.0000357 26670        0  1
-## s[2,1,12] 2.755214e-01 3.983766e-01 0.9999814 30000        0  1
-## s[1,2,12] 2.504890e-02 3.939647e-02 0.9999988 30000        0  1
-## s[2,2,12] 1.141546e-01 1.963509e-01 0.9999932 30000        0  1
-## s[1,3,12] 2.926325e-02 7.446698e-02 0.9999696 30000        0  1
-## s[2,3,12] 9.391655e-02 1.689019e-01 1.0000591 17128        0  1
-## s[1,4,12] 4.002676e-02 5.660693e-02 0.9999957 30000        0  1
-## s[2,4,12] 1.662444e-01 2.606150e-01 1.0001822 20940        0  1
-## s[1,1,13] 9.047538e-01 9.443023e-01 1.0000373 25914        0  1
-## s[2,1,13] 2.638902e-01 3.904897e-01 0.9999835 30000        0  1
-## s[1,2,13] 2.491167e-02 3.918516e-02 0.9999983 30000        0  1
-## s[2,2,13] 1.088041e-01 1.912630e-01 0.9999935 30000        0  1
-## s[1,3,13] 2.984728e-02 7.618309e-02 0.9999694 30000        0  1
-## s[2,3,13] 8.952391e-02 1.651193e-01 1.0000552 17679        0  1
-## s[1,4,13] 3.984144e-02 5.642342e-02 0.9999952 30000        0  1
-## s[2,4,13] 1.594920e-01 2.540692e-01 1.0001631 22284        0  1
-## E[1,1]    1.109675e+01 1.145138e+01 1.0000271 30000        0  1
-## E[2,1]    4.114218e+00 5.298029e+00 0.9999763 30000        0  1
-## E[1,2]    3.108674e-01 4.890399e-01 1.0000036 30000        0  1
-## E[2,2]    1.750180e+00 2.659831e+00 0.9999737 30000        0  1
-## E[1,3]    2.625353e-01 6.695458e-01 0.9999712 30000        0  1
-## E[2,3]    1.280707e+00 2.095090e+00 1.0000540 18102        0  1
-## E[1,4]    4.659567e-01 6.642986e-01 0.9999996 30000        0  1
-## E[2,4]    2.588144e+00 3.665856e+00 1.0003300 19745        0  1
-## E[1,5]    5.111720e-01 1.208636e+00 1.0000734 21103        0  1
-## E[2,5]    5.040057e+00 7.301894e+00 0.9999996 30000        0  1
-## deviance            NA           NA        NA    NA       NA NA</code></pre>
+<pre><code>##                    mean          sd          2.5%           25%           50%
+## r[1,1,1]  210.000000000 0.000000000  2.100000e+02  2.100000e+02  2.100000e+02
+## r[2,1,1]   66.000000000 0.000000000  6.600000e+01  6.600000e+01  6.600000e+01
+## r[1,2,1]   88.000000000 0.000000000  8.800000e+01  8.800000e+01  8.800000e+01
+## r[2,2,1]   42.000000000 0.000000000  4.200000e+01  4.200000e+01  4.200000e+01
+## r[1,3,1]    0.000000000 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[2,3,1]    0.000000000 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[1,4,1]    1.000000000 0.000000000  1.000000e+00  1.000000e+00  1.000000e+00
+## r[2,4,1]    0.000000000 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[1,1,2]   60.000000000 0.000000000  6.000000e+01  6.000000e+01  6.000000e+01
+## r[2,1,2]   32.000000000 0.000000000  3.200000e+01  3.200000e+01  3.200000e+01
+## r[1,2,2]  641.000000000 0.000000000  6.410000e+02  6.410000e+02  6.410000e+02
+## r[2,2,2]  752.000000000 0.000000000  7.520000e+02  7.520000e+02  7.520000e+02
+## r[1,3,2]    0.000000000 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[2,3,2]    0.000000000 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[1,4,2]    0.000000000 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[2,4,2]    4.000000000 0.000000000  4.000000e+00  4.000000e+00  4.000000e+00
+## r[1,1,3]    0.000000000 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[2,1,3]    0.000000000 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[1,2,3]    0.000000000 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[2,2,3]    0.000000000 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[1,3,3]    0.000000000 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[2,3,3]    0.000000000 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[1,4,3]    0.000000000 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[2,4,3]    0.000000000 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[1,1,4]    1.000000000 0.000000000  1.000000e+00  1.000000e+00  1.000000e+00
+## r[2,1,4]    0.000000000 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[1,2,4]    4.000000000 0.000000000  4.000000e+00  4.000000e+00  4.000000e+00
+## r[2,2,4]    5.000000000 0.000000000  5.000000e+00  5.000000e+00  5.000000e+00
+## r[1,3,4]    0.000000000 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[2,3,4]    0.000000000 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[1,4,4]    0.000000000 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[2,4,4]    1.000000000 0.000000000  1.000000e+00  1.000000e+00  1.000000e+00
+## r[1,1,5]    1.000000000 0.000000000  1.000000e+00  1.000000e+00  1.000000e+00
+## r[2,1,5]    2.000000000 0.000000000  2.000000e+00  2.000000e+00  2.000000e+00
+## r[1,2,5]   13.000000000 0.000000000  1.300000e+01  1.300000e+01  1.300000e+01
+## r[2,2,5]   20.000000000 0.000000000  2.000000e+01  2.000000e+01  2.000000e+01
+## r[1,3,5]    0.000000000 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[2,3,5]    0.000000000 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## r[1,4,5]    1.000000000 0.000000000  1.000000e+00  1.000000e+00  1.000000e+00
+## r[2,4,5]    0.000000000 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## pi[1,1,1]   0.761752165 0.025465246  7.104236e-01  7.448581e-01  7.622445e-01
+## pi[2,1,1]   0.638147498 0.046819045  5.444510e-01  6.067284e-01  6.389913e-01
+## pi[1,2,1]   0.118617483 0.011755890  9.642411e-02  1.105030e-01  1.183466e-01
+## pi[2,2,1]   0.052160731 0.007746691  3.814917e-02  4.671503e-02  5.173002e-02
+## pi[1,3,1]   0.200794571 0.164250655  6.059540e-03  6.997180e-02  1.584873e-01
+## pi[2,3,1]   0.199300076 0.162925820  6.631247e-03  6.843174e-02  1.589465e-01
+## pi[1,4,1]   0.284966701 0.159433043  4.320774e-02  1.614313e-01  2.645533e-01
+## pi[2,4,1]   0.100062868 0.090593318  2.796684e-03  3.164038e-02  7.451500e-02
+## pi[1,1,2]   0.220192876 0.024848844  1.735205e-01  2.030517e-01  2.196548e-01
+## pi[2,1,2]   0.314219486 0.045174562  2.292790e-01  2.828443e-01  3.132323e-01
+## pi[1,2,2]   0.854798560 0.012803928  8.290248e-01  8.463479e-01  8.550761e-01
+## pi[2,2,2]   0.913788053 0.009775419  8.936697e-01  9.074037e-01  9.140779e-01
+## pi[1,3,2]   0.199912639 0.163184489  6.198129e-03  6.957794e-02  1.585428e-01
+## pi[2,3,2]   0.200139538 0.163220215  6.252709e-03  6.907546e-02  1.592173e-01
+## pi[1,4,2]   0.142644567 0.123656166  4.493892e-03  4.691653e-02  1.089046e-01
+## pi[2,4,2]   0.499840444 0.150604902  2.136776e-01  3.915291e-01  5.003135e-01
+## pi[1,1,3]   0.003603014 0.003562007  9.259809e-05  1.047733e-03  2.505638e-03
+## pi[2,1,3]   0.009475166 0.009315377  2.418047e-04  2.752844e-03  6.667026e-03
+## pi[1,2,3]   0.001339967 0.001348454  3.329676e-05  3.813554e-04  9.255372e-04
+## pi[2,2,3]   0.001215749 0.001206944  3.225251e-05  3.516454e-04  8.485265e-04
+## pi[1,3,3]   0.200442420 0.164482088  6.335120e-03  6.902121e-02  1.574859e-01
+## pi[2,3,3]   0.201258336 0.163518294  6.357906e-03  6.992399e-02  1.609390e-01
+## pi[1,4,3]   0.143372470 0.123697306  4.359526e-03  4.775008e-02  1.095370e-01
+## pi[2,4,3]   0.099400022 0.090016468  2.678176e-03  3.128655e-02  7.334944e-02
+## pi[1,1,4]   0.007221036 0.005072125  8.657388e-04  3.483468e-03  6.083063e-03
+## pi[2,1,4]   0.009592742 0.009573793  2.495755e-04  2.760856e-03  6.646625e-03
+## pi[1,2,4]   0.006645292 0.002973918  2.177291e-03  4.479471e-03  6.209021e-03
+## pi[2,2,4]   0.007317070 0.002954710  2.689921e-03  5.181491e-03  6.931596e-03
+## pi[1,3,4]   0.197969718 0.162678217  6.234844e-03  6.734983e-02  1.572166e-01
+## pi[2,3,4]   0.199780478 0.163201390  6.231737e-03  6.931370e-02  1.591332e-01
+## pi[1,4,4]   0.141874781 0.122748520  4.176370e-03  4.611844e-02  1.083589e-01
+## pi[2,4,4]   0.201043496 0.121483359  2.749280e-02  1.073766e-01  1.814681e-01
+## pi[1,1,5]   0.007230909 0.005126107  8.907186e-04  3.452677e-03  6.088366e-03
+## pi[2,1,5]   0.028565108 0.016221823  6.004642e-03  1.661173e-02  2.560873e-02
+## pi[1,2,5]   0.018598698 0.004925044  1.025143e-02  1.509544e-02  1.817076e-02
+## pi[2,2,5]   0.025518396 0.005515366  1.586189e-02  2.160466e-02  2.514533e-02
+## pi[1,3,5]   0.200880652 0.164666724  6.530676e-03  6.963331e-02  1.577323e-01
+## pi[2,3,5]   0.199521572 0.164317993  6.036791e-03  6.882859e-02  1.570503e-01
+## pi[1,4,5]   0.287141482 0.159595796  4.417038e-02  1.627382e-01  2.666249e-01
+## pi[2,4,5]   0.099653171 0.089730446  2.752120e-03  3.117720e-02  7.399300e-02
+## s[1,1,1]    1.000000000 0.000000000  1.000000e+00  1.000000e+00  1.000000e+00
+## s[2,1,1]    1.000000000 0.000000000  1.000000e+00  1.000000e+00  1.000000e+00
+## s[1,2,1]    0.000000000 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## s[2,2,1]    0.000000000 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## s[1,3,1]    0.000000000 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## s[2,3,1]    0.000000000 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## s[1,4,1]    0.000000000 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## s[2,4,1]    0.000000000 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## s[1,5,1]    0.000000000 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## s[2,5,1]    0.000000000 0.000000000  0.000000e+00  0.000000e+00  0.000000e+00
+## s[1,1,2]    0.761752165 0.025465246  7.104236e-01  7.448581e-01  7.622445e-01
+## s[2,1,2]    0.638147498 0.046819045  5.444510e-01  6.067284e-01  6.389913e-01
+## s[1,2,2]    0.220192876 0.024848844  1.735205e-01  2.030517e-01  2.196548e-01
+## s[2,2,2]    0.314219486 0.045174562  2.292790e-01  2.828443e-01  3.132323e-01
+## s[1,3,2]    0.003603014 0.003562007  9.259809e-05  1.047733e-03  2.505638e-03
+## s[2,3,2]    0.009475166 0.009315377  2.418047e-04  2.752844e-03  6.667026e-03
+## s[1,4,2]    0.007221036 0.005072125  8.657388e-04  3.483468e-03  6.083063e-03
+## s[2,4,2]    0.009592742 0.009573793  2.495755e-04  2.760856e-03  6.646625e-03
+## s[1,1,3]    0.609808561 0.035774561  5.390059e-01  5.856452e-01  6.099861e-01
+## s[2,1,3]    0.428671473 0.057237748  3.201403e-01  3.890673e-01  4.274241e-01
+## s[1,2,3]    0.357105788 0.034845920  2.901666e-01  3.333170e-01  3.569255e-01
+## s[2,2,3]    0.492436804 0.056624440  3.809157e-01  4.537841e-01  4.929779e-01
+## s[1,3,3]    0.004795487 0.003763626  6.436748e-04  2.123548e-03  3.767981e-03
+## s[2,3,3]    0.009219523 0.008054646  8.359559e-04  3.500934e-03  6.939674e-03
+## s[1,4,3]    0.008679389 0.004813648  2.439793e-03  5.177505e-03  7.669759e-03
+## s[2,4,3]    0.012192295 0.008546978  2.643836e-03  6.158498e-03  9.850178e-03
+## s[1,1,4]    0.511129750 0.039057358  4.355921e-01  4.842911e-01  5.107956e-01
+## s[2,1,4]    0.304878362 0.054300283  2.072135e-01  2.664283e-01  3.020865e-01
+## s[1,2,4]    0.440877985 0.037919691  3.667885e-01  4.152711e-01  4.411785e-01
+## s[2,2,4]    0.590175466 0.055844833  4.761199e-01  5.527477e-01  5.923627e-01
+## s[1,3,4]    0.004955871 0.003697552  8.022067e-04  2.382034e-03  3.978224e-03
+## s[2,3,4]    0.007899932 0.006670972  9.762668e-04  3.322415e-03  6.048309e-03
+## s[1,4,4]    0.009016027 0.004496152  3.018477e-03  5.802226e-03  8.112847e-03
+## s[2,4,4]    0.012025113 0.007053003  3.577612e-03  7.157912e-03  1.030525e-02
+## s[1,1,5]    0.446017283 0.039289338  3.713458e-01  4.188139e-01  4.451758e-01
+## s[2,1,5]    0.230481361 0.047493246  1.490900e-01  1.966209e-01  2.264896e-01
+## s[1,2,5]    0.490785505 0.038097901  4.155426e-01  4.652125e-01  4.914781e-01
+## s[2,2,5]    0.640340906 0.051955000  5.324134e-01  6.062635e-01  6.431604e-01
+## s[1,3,5]    0.004869023 0.003561113  8.445572e-04  2.418417e-03  3.967704e-03
+## s[2,3,5]    0.006657058 0.005504333  9.621017e-04  3.031356e-03  5.189254e-03
+## s[1,4,5]    0.008985123 0.004206044  3.241734e-03  6.012859e-03  8.211431e-03
+## s[2,4,5]    0.011337282 0.005871345  3.855302e-03  7.303142e-03  1.009024e-02
+## s[1,1,6]    0.402242859 0.038396721  3.300756e-01  3.757266e-01  4.011377e-01
+## s[2,1,6]    0.184930683 0.040577224  1.176520e-01  1.559102e-01  1.807009e-01
+## s[1,2,6]    0.519131183 0.037339461  4.449756e-01  4.940499e-01  5.201025e-01
+## s[2,2,6]    0.662538459 0.048516762  5.604598e-01  6.312319e-01  6.653509e-01
+## s[1,3,6]    0.004717179 0.003425799  8.462199e-04  2.382104e-03  3.860453e-03
+## s[2,3,6]    0.005717183 0.004645210  9.051399e-04  2.724660e-03  4.525591e-03
+## s[1,4,6]    0.008848988 0.003997231  3.310049e-03  6.040307e-03  8.132698e-03
+## s[2,4,6]    0.010640226 0.005075534  3.881861e-03  7.145307e-03  9.663946e-03
+## s[1,1,7]    0.372107383 0.037251278  3.023103e-01  3.462863e-01  3.708872e-01
+## s[2,1,7]    0.156396204 0.034809785  9.970230e-02  1.315554e-01  1.524648e-01
+## s[1,2,7]    0.533751605 0.036510464  4.607032e-01  5.092255e-01  5.346207e-01
+## s[2,2,7]    0.668330906 0.046502081  5.697124e-01  6.384862e-01  6.713482e-01
+## s[1,3,7]    0.004566382 0.003311569  8.338212e-04  2.333852e-03  3.754941e-03
+## s[2,3,7]    0.005043244 0.004027868  8.392008e-04  2.473822e-03  4.049581e-03
+## s[1,4,7]    0.008681163 0.003841830  3.300444e-03  5.999318e-03  8.006115e-03
+## s[2,4,7]    0.010052695 0.004564299  3.811184e-03  6.902187e-03  9.237729e-03
+## s[1,1,8]    0.350729772 0.036200498  2.831326e-01  3.256886e-01  3.494240e-01
+## s[2,1,8]    0.137989639 0.030400290  8.859381e-02  1.165311e-01  1.344393e-01
+## s[1,2,8]    0.539644423 0.035927065  4.677321e-01  5.155826e-01  5.401465e-01
+## s[2,2,8]    0.664545246 0.045804633  5.672540e-01  6.352563e-01  6.674060e-01
+## s[1,3,8]    0.004430403 0.003216193  8.140162e-04  2.267140e-03  3.646761e-03
+## s[2,3,8]    0.004564825 0.003586873  7.777562e-04  2.286096e-03  3.704390e-03
+## s[1,4,8]    0.008509581 0.003721646  3.267535e-03  5.914924e-03  7.871571e-03
+## s[2,4,8]    0.009572388 0.004226920  3.689479e-03  6.646989e-03  8.844165e-03
+## s[1,1,9]    0.335002577 0.035349455  2.691518e-01  3.104079e-01  3.336425e-01
+## s[2,1,9]    0.125665135 0.027169226  8.149119e-02  1.064978e-01  1.224989e-01
+## s[1,2,9]    0.540000703 0.035653994  4.690240e-01  5.162072e-01  5.404798e-01
+## s[2,2,9]    0.655221525 0.046021330  5.574936e-01  6.259497e-01  6.581294e-01
+## s[1,3,9]    0.004311186 0.003135846  7.948512e-04  2.213124e-03  3.541546e-03
+## s[2,3,9]    0.004219631 0.003266732  7.323996e-04  2.139475e-03  3.448754e-03
+## s[1,4,9]    0.008341943 0.003622297  3.222990e-03  5.819286e-03  7.737451e-03
+## s[2,4,9]    0.009175175 0.003990663  3.567215e-03  6.405048e-03  8.497522e-03
+## s[1,1,10]   0.322941202 0.034703196  2.584719e-01  2.987771e-01  3.216769e-01
+## s[2,1,10]   0.117028326 0.024840277  7.631272e-02  9.961031e-02  1.141304e-01
+## s[1,2,10]   0.536861114 0.035658983  4.658698e-01  5.129885e-01  5.372824e-01
+## s[2,2,10]   0.642759093 0.046783422  5.437090e-01  6.130609e-01  6.454056e-01
+## s[1,3,10]   0.004205865 0.003066121  7.748574e-04  2.165092e-03  3.460079e-03
+## s[2,3,10]   0.003962833 0.003028723  6.961398e-04  2.025054e-03  3.255888e-03
+## s[1,4,10]   0.008180511 0.003536031  3.181391e-03  5.720950e-03  7.592961e-03
+## s[2,4,10]   0.008837078 0.003812473  3.455796e-03  6.180192e-03  8.190741e-03
+## s[1,1,11]   0.313274796 0.034232938  2.496131e-01  2.895464e-01  3.119664e-01
+## s[2,1,11]   0.110652399 0.023158223  7.252712e-02  9.448516e-02  1.080128e-01
+## s[1,2,11]   0.531532460 0.035884212  4.603492e-01  5.075848e-01  5.319340e-01
+## s[2,2,11]   0.628587462 0.047837307  5.281609e-01  5.981210e-01  6.311921e-01
+## s[1,3,11]   0.004111356 0.003003942  7.593748e-04  2.120270e-03  3.382005e-03
+## s[2,3,11]   0.003764001 0.002846115  6.685997e-04  1.935251e-03  3.101086e-03
+## s[1,4,11]   0.008025103 0.003458105  3.130152e-03  5.624355e-03  7.456777e-03
+## s[2,4,11]   0.008540158 0.003668693  3.349033e-03  5.977203e-03  7.925223e-03
+## s[1,1,12]   0.305187516 0.033903668  2.422247e-01  2.817933e-01  3.039666e-01
+## s[2,1,12]   0.105681490 0.021924372  6.948271e-02  9.039138e-02  1.032619e-01
+## s[1,2,12]   0.524852662 0.036274225  4.530135e-01  5.006650e-01  5.252668e-01
+## s[2,2,12]   0.613560530 0.049028245  5.111309e-01  5.820852e-01  6.160328e-01
+## s[1,3,12]   0.004024884 0.002947010  7.468535e-04  2.078182e-03  3.312928e-03
+## s[2,3,12]   0.003603234 0.002701167  6.445716e-04  1.859892e-03  2.975833e-03
+## s[1,4,12]   0.007875094 0.003385899  3.083377e-03  5.527370e-03  7.318076e-03
+## s[2,4,12]   0.008271988 0.003546174  3.240819e-03  5.791085e-03  7.675934e-03
+## s[1,1,13]   0.298154330 0.033683873  2.356215e-01  2.749802e-01  2.970007e-01
+## s[2,1,13]   0.101598872 0.020996439  6.672121e-02  8.697725e-02  9.931218e-02
+## s[1,2,13]   0.517359527 0.036783886  4.445602e-01  4.928300e-01  5.176464e-01
+## s[2,2,13]   0.598188880 0.050266471  4.940539e-01  5.657031e-01  6.003371e-01
+## s[1,3,13]   0.003944384 0.002893800  7.318065e-04  2.038039e-03  3.247900e-03
+## s[2,3,13]   0.003467689 0.002582054  6.256343e-04  1.798272e-03  2.869673e-03
+## s[1,4,13]   0.007729742 0.003317806  3.032857e-03  5.428292e-03  7.181398e-03
+## s[2,4,13]   0.008024353 0.003437525  3.135665e-03  5.621361e-03  7.446500e-03
+## E[1,1]      5.028348196 0.412819211  4.252638e+00  4.742230e+00  5.017042e+00
+## E[2,1]      2.642121441 0.416007521  1.923709e+00  2.348334e+00  2.608289e+00
+## E[1,2]      5.752095832 0.406133071  4.945340e+00  5.478909e+00  5.758090e+00
+## E[2,2]      7.170904764 0.541003720  6.043800e+00  6.819702e+00  7.196275e+00
+## E[1,3]      0.052535034 0.037484122  9.467903e-03  2.675946e-02  4.328386e-02
+## E[2,3]      0.067594318 0.052118684  1.041796e-02  3.225647e-02  5.419741e-02
+## E[1,4]      0.100093698 0.044877766  3.721368e-02  6.826018e-02  9.235312e-02
+## E[2,4]      0.118261492 0.057112581  4.190619e-02  7.842084e-02  1.070539e-01
+## E[1,5]      1.066927240 0.279936498  6.073962e-01  8.658678e-01  1.037835e+00
+## E[2,5]      2.001117986 0.496280297  1.191184e+00  1.641443e+00  1.947457e+00
+## D[1]        2.386226755 0.590537699  1.178497e+00  2.001420e+00  2.399868e+00
+## D[2]       -1.418808933 0.678760185 -2.697967e+00 -1.887035e+00 -1.430738e+00
+## D[3]       -0.015059284 0.063997756 -1.587290e-01 -4.492652e-02 -1.003737e-02
+## D[4]       -0.018167793 0.072784215 -1.781183e-01 -5.846440e-02 -1.411113e-02
+## D[5]       -0.934190745 0.571248750 -2.155468e+00 -1.292076e+00 -8.992982e-01
+## prob[1]     0.999800000 0.014140957  1.000000e+00  1.000000e+00  1.000000e+00
+## prob[2]     0.021933333 0.146468349  0.000000e+00  0.000000e+00  0.000000e+00
+## prob[3]     0.411000000 0.492023444  0.000000e+00  0.000000e+00  0.000000e+00
+## prob[4]     0.407900000 0.491452583  0.000000e+00  0.000000e+00  0.000000e+00
+## prob[5]     0.039300000 0.194311010  0.000000e+00  0.000000e+00  0.000000e+00
+## deviance   76.870863296 7.188366170  6.459037e+01  7.179011e+01  7.626243e+01
+##                     75%         97.5%      Rhat n.eff overlap0         f
+## r[1,1,1]  210.000000000 210.000000000        NA     1        0 1.0000000
+## r[2,1,1]   66.000000000  66.000000000        NA     1        0 1.0000000
+## r[1,2,1]   88.000000000  88.000000000        NA     1        0 1.0000000
+## r[2,2,1]   42.000000000  42.000000000        NA     1        0 1.0000000
+## r[1,3,1]    0.000000000   0.000000000        NA     1        1 1.0000000
+## r[2,3,1]    0.000000000   0.000000000        NA     1        1 1.0000000
+## r[1,4,1]    1.000000000   1.000000000        NA     1        0 1.0000000
+## r[2,4,1]    0.000000000   0.000000000        NA     1        1 1.0000000
+## r[1,1,2]   60.000000000  60.000000000        NA     1        0 1.0000000
+## r[2,1,2]   32.000000000  32.000000000        NA     1        0 1.0000000
+## r[1,2,2]  641.000000000 641.000000000        NA     1        0 1.0000000
+## r[2,2,2]  752.000000000 752.000000000        NA     1        0 1.0000000
+## r[1,3,2]    0.000000000   0.000000000        NA     1        1 1.0000000
+## r[2,3,2]    0.000000000   0.000000000        NA     1        1 1.0000000
+## r[1,4,2]    0.000000000   0.000000000        NA     1        1 1.0000000
+## r[2,4,2]    4.000000000   4.000000000        NA     1        0 1.0000000
+## r[1,1,3]    0.000000000   0.000000000        NA     1        1 1.0000000
+## r[2,1,3]    0.000000000   0.000000000        NA     1        1 1.0000000
+## r[1,2,3]    0.000000000   0.000000000        NA     1        1 1.0000000
+## r[2,2,3]    0.000000000   0.000000000        NA     1        1 1.0000000
+## r[1,3,3]    0.000000000   0.000000000        NA     1        1 1.0000000
+## r[2,3,3]    0.000000000   0.000000000        NA     1        1 1.0000000
+## r[1,4,3]    0.000000000   0.000000000        NA     1        1 1.0000000
+## r[2,4,3]    0.000000000   0.000000000        NA     1        1 1.0000000
+## r[1,1,4]    1.000000000   1.000000000        NA     1        0 1.0000000
+## r[2,1,4]    0.000000000   0.000000000        NA     1        1 1.0000000
+## r[1,2,4]    4.000000000   4.000000000        NA     1        0 1.0000000
+## r[2,2,4]    5.000000000   5.000000000        NA     1        0 1.0000000
+## r[1,3,4]    0.000000000   0.000000000        NA     1        1 1.0000000
+## r[2,3,4]    0.000000000   0.000000000        NA     1        1 1.0000000
+## r[1,4,4]    0.000000000   0.000000000        NA     1        1 1.0000000
+## r[2,4,4]    1.000000000   1.000000000        NA     1        0 1.0000000
+## r[1,1,5]    1.000000000   1.000000000        NA     1        0 1.0000000
+## r[2,1,5]    2.000000000   2.000000000        NA     1        0 1.0000000
+## r[1,2,5]   13.000000000  13.000000000        NA     1        0 1.0000000
+## r[2,2,5]   20.000000000  20.000000000        NA     1        0 1.0000000
+## r[1,3,5]    0.000000000   0.000000000        NA     1        1 1.0000000
+## r[2,3,5]    0.000000000   0.000000000        NA     1        1 1.0000000
+## r[1,4,5]    1.000000000   1.000000000        NA     1        0 1.0000000
+## r[2,4,5]    0.000000000   0.000000000        NA     1        1 1.0000000
+## pi[1,1,1]   0.779305041   0.809805144 1.0000106 30000        0 1.0000000
+## pi[2,1,1]   0.670133349   0.727630417 1.0000646 30000        0 1.0000000
+## pi[1,2,1]   0.126387283   0.142281233 0.9999963 30000        0 1.0000000
+## pi[2,2,1]   0.057160493   0.068414064 1.0000415 30000        0 1.0000000
+## pi[1,3,1]   0.293262802   0.602299987 1.0000282 27871        0 1.0000000
+## pi[2,3,1]   0.292223453   0.601460091 1.0000022 30000        0 1.0000000
+## pi[1,4,1]   0.387720146   0.641840234 1.0000663 30000        0 1.0000000
+## pi[2,4,1]   0.141965971   0.339970118 0.9999899 30000        0 1.0000000
+## pi[1,1,2]   0.236520210   0.270308909 1.0000746 24521        0 1.0000000
+## pi[2,1,2]   0.344320928   0.405501902 1.0000046 30000        0 1.0000000
+## pi[1,2,2]   0.863475797   0.879316431 1.0000305 27521        0 1.0000000
+## pi[2,2,2]   0.920555468   0.931977523 0.9999838 30000        0 1.0000000
+## pi[1,3,2]   0.293982209   0.603118246 1.0000874 12488        0 1.0000000
+## pi[2,3,2]   0.292716505   0.602509082 0.9999683 30000        0 1.0000000
+## pi[1,4,2]   0.204262283   0.462171883 0.9999908 30000        0 1.0000000
+## pi[2,4,2]   0.607908339   0.788344540 1.0000285 30000        0 1.0000000
+## pi[1,1,3]   0.005010706   0.013092536 1.0005938 11805        0 1.0000000
+## pi[2,1,3]   0.013354802   0.034301921 1.0000256 30000        0 1.0000000
+## pi[1,2,3]   0.001852786   0.004965288 1.0000423 30000        0 1.0000000
+## pi[2,2,3]   0.001691217   0.004408874 1.0000689 30000        0 1.0000000
+## pi[1,3,3]   0.295232130   0.607115653 1.0000265 30000        0 1.0000000
+## pi[2,3,3]   0.294646281   0.603952237 0.9999854 30000        0 1.0000000
+## pi[1,4,3]   0.206399198   0.459933509 1.0000016 30000        0 1.0000000
+## pi[2,4,3]   0.141982736   0.332998249 1.0000119 30000        0 1.0000000
+## pi[1,1,4]   0.009736324   0.019890108 1.0001863 23080        0 1.0000000
+## pi[2,1,4]   0.013320737   0.035042180 0.9999816 30000        0 1.0000000
+## pi[1,2,4]   0.008331679   0.013644462 1.0000042 30000        0 1.0000000
+## pi[2,2,4]   0.009058568   0.014065060 1.0000175 30000        0 1.0000000
+## pi[1,3,4]   0.289643227   0.598023335 0.9999730 30000        0 1.0000000
+## pi[2,3,4]   0.293139464   0.602223260 1.0000444 23579        0 1.0000000
+## pi[1,4,4]   0.206651596   0.449222108 1.0004392  3724        0 1.0000000
+## pi[2,4,4]   0.273001829   0.485804322 0.9999800 30000        0 1.0000000
+## pi[1,1,5]   0.009751777   0.020178351 0.9999727 30000        0 1.0000000
+## pi[2,1,5]   0.037398087   0.067722773 1.0001010 30000        0 1.0000000
+## pi[1,2,5]   0.021624192   0.029413643 1.0002986  4542        0 1.0000000
+## pi[2,2,5]   0.028993839   0.037427958 0.9999850 30000        0 1.0000000
+## pi[1,3,5]   0.295168277   0.604922740 1.0000493 30000        0 1.0000000
+## pi[2,3,5]   0.293532877   0.607663018 1.0000857 30000        0 1.0000000
+## pi[1,4,5]   0.392092447   0.640542199 1.0002505  5546        0 1.0000000
+## pi[2,4,5]   0.142997840   0.331935904 0.9999729 30000        0 1.0000000
+## s[1,1,1]    1.000000000   1.000000000        NA     1        0 1.0000000
+## s[2,1,1]    1.000000000   1.000000000        NA     1        0 1.0000000
+## s[1,2,1]    0.000000000   0.000000000        NA     1        1 1.0000000
+## s[2,2,1]    0.000000000   0.000000000        NA     1        1 1.0000000
+## s[1,3,1]    0.000000000   0.000000000        NA     1        1 1.0000000
+## s[2,3,1]    0.000000000   0.000000000        NA     1        1 1.0000000
+## s[1,4,1]    0.000000000   0.000000000        NA     1        1 1.0000000
+## s[2,4,1]    0.000000000   0.000000000        NA     1        1 1.0000000
+## s[1,5,1]    0.000000000   0.000000000        NA     1        1 1.0000000
+## s[2,5,1]    0.000000000   0.000000000        NA     1        1 1.0000000
+## s[1,1,2]    0.779305041   0.809805144 1.0000106 30000        0 1.0000000
+## s[2,1,2]    0.670133349   0.727630417 1.0000646 30000        0 1.0000000
+## s[1,2,2]    0.236520210   0.270308909 1.0000746 24521        0 1.0000000
+## s[2,2,2]    0.344320928   0.405501902 1.0000046 30000        0 1.0000000
+## s[1,3,2]    0.005010706   0.013092536 1.0005938 11805        0 1.0000000
+## s[2,3,2]    0.013354802   0.034301921 1.0000256 30000        0 1.0000000
+## s[1,4,2]    0.009736324   0.019890108 1.0001863 23080        0 1.0000000
+## s[2,4,2]    0.013320737   0.035042180 0.9999816 30000        0 1.0000000
+## s[1,1,3]    0.634364765   0.679156074 1.0000269 30000        0 1.0000000
+## s[2,1,3]    0.466742907   0.544209818 1.0000716 30000        0 1.0000000
+## s[1,2,3]    0.380425219   0.426096000 1.0001118 20556        0 1.0000000
+## s[2,2,3]    0.531277583   0.601205598 0.9999861 30000        0 1.0000000
+## s[1,3,3]    0.006359431   0.014749427 1.0002128 14554        0 1.0000000
+## s[2,3,3]    0.012474950   0.030484430 1.0000058 30000        0 1.0000000
+## s[1,4,3]    0.011051333   0.020761171 1.0002461 14874        0 1.0000000
+## s[2,4,3]    0.015744633   0.034783380 0.9999932 30000        0 1.0000000
+## s[1,1,4]    0.537545382   0.588680765 1.0000403 30000        0 1.0000000
+## s[2,1,4]    0.339959072   0.419150494 1.0000793 30000        0 1.0000000
+## s[1,2,4]    0.466452982   0.514836333 1.0001561 17383        0 1.0000000
+## s[2,2,4]    0.629298619   0.693816963 0.9999730 30000        0 1.0000000
+## s[1,3,4]    0.006452597   0.014706810 1.0000446 23195        0 1.0000000
+## s[2,3,4]    0.010324312   0.025595612 0.9999909 30000        0 1.0000000
+## s[1,4,4]    0.011210881   0.020147743 1.0001846 14673        0 1.0000000
+## s[2,4,4]    0.015000200   0.030340824 1.0000240 30000        0 1.0000000
+## s[1,1,5]    0.472543072   0.525458200 1.0000498 30000        0 1.0000000
+## s[2,1,5]    0.260046700   0.334375041 1.0000879 30000        0 1.0000000
+## s[1,2,5]    0.516730730   0.564195137 1.0002048 14731        0 1.0000000
+## s[2,2,5]    0.677142241   0.734390993 0.9999674 30000        0 1.0000000
+## s[1,3,5]    0.006276168   0.014276450 1.0000078 30000        0 1.0000000
+## s[2,3,5]    0.008518027   0.021132607 1.0000742 30000        0 1.0000000
+## s[1,4,5]    0.011017043   0.019194629 1.0001193 16227        0 1.0000000
+## s[2,4,5]    0.013894375   0.026266752 1.0000726 22584        0 1.0000000
+## s[1,1,6]    0.428106255   0.481054429 1.0000545 30000        0 1.0000000
+## s[2,1,6]    0.209268276   0.275877792 1.0000947 30000        0 1.0000000
+## s[1,2,6]    0.544626104   0.590974558 1.0002512 12699        0 1.0000000
+## s[2,2,6]    0.696959068   0.748644038 0.9999694 30000        0 1.0000000
+## s[1,3,6]    0.006053563   0.013708287 1.0000238 30000        0 1.0000000
+## s[2,3,6]    0.007250450   0.017545533 1.0002911 30000        0 1.0000000
+## s[1,4,6]    0.010780185   0.018477038 1.0000675 19186        0 1.0000000
+## s[2,4,6]    0.012953025   0.023473730 1.0001061 18695        0 1.0000000
+## s[1,1,7]    0.396818046   0.449200290 1.0000540 30000        0 1.0000000
+## s[2,1,7]    0.176729214   0.234757016 1.0000964 30000        0 1.0000000
+## s[1,2,7]    0.558727308   0.603702792 1.0002888 11194        0 1.0000000
+## s[2,2,7]    0.701264916   0.750226192 0.9999730 30000        0 1.0000000
+## s[1,3,7]    0.005840534   0.013173354 1.0000561 30000        0 1.0000000
+## s[2,3,7]    0.006351978   0.015229715 1.0005785 30000        0 1.0000000
+## s[1,4,7]    0.010541792   0.017873307 1.0000371 22936        0 1.0000000
+## s[2,4,7]    0.012171457   0.021554098 1.0001265 16911        0 1.0000000
+## s[1,1,8]    0.374782332   0.425569388 1.0000494 30000        0 1.0000000
+## s[2,1,8]    0.155570221   0.206790465 1.0000916 30000        0 1.0000000
+## s[1,2,8]    0.564202732   0.608742146 1.0003141 10105        0 1.0000000
+## s[2,2,8]    0.696917263   0.745071812 0.9999743 30000        0 1.0000000
+## s[1,3,8]    0.005654299   0.012719223 1.0000922 30000        0 1.0000000
+## s[2,3,8]    0.005746139   0.013677822 1.0008356 30000        0 1.0000000
+## s[1,4,8]    0.010325034   0.017449888 1.0000220 27155        0 1.0000000
+## s[2,4,8]    0.011597184   0.020020378 1.0001355 16150        0 1.0000000
+## s[1,1,9]    0.358400943   0.407852073 1.0000423 30000        0 1.0000000
+## s[2,1,9]    0.141285980   0.187101182 1.0000816 30000        0 1.0000000
+## s[1,2,9]    0.564291512   0.608711004 1.0003272  9317        0 1.0000000
+## s[2,2,9]    0.687679866   0.736602265 0.9999743 30000        0 1.0000000
+## s[1,3,9]    0.005504376   0.012337867 1.0001271 30000        0 1.0000000
+## s[2,3,9]    0.005311053   0.012504341 1.0009964 29634        0 1.0000000
+## s[1,4,9]    0.010114418   0.016979414 1.0000161 30000        0 1.0000000
+## s[2,4,9]    0.011125218   0.018969288 1.0001418 15701        0 1.0000000
+## s[1,1,10]   0.345780977   0.394579140 1.0000341 30000        0 1.0000000
+## s[2,1,10]   0.131495490   0.173005381 1.0000692 30000        0 1.0000000
+## s[1,2,10]   0.561102825   0.605763789 1.0003303  8740        0 1.0000000
+## s[2,2,10]   0.675634554   0.726372355 0.9999751 30000        0 1.0000000
+## s[1,3,10]   0.005370441   0.012047293 1.0001591 30000        0 1.0000000
+## s[2,3,10]   0.004993527   0.011584245 1.0010563 29593        0 1.0000000
+## s[1,4,10]   0.009919075   0.016640460 1.0000149 30000        0 1.0000000
+## s[2,4,10]   0.010718546   0.018172892 1.0001476 15405        0 1.0000000
+## s[1,1,11]   0.335758828   0.384022294 1.0000258 30000        0 1.0000000
+## s[2,1,11]   0.124267565   0.162769783 1.0000571 30000        0 1.0000000
+## s[1,2,11]   0.555866765   0.600837991 1.0003267  8311        0 1.0000000
+## s[2,2,11]   0.662148599   0.714701137 0.9999777 30000        0 1.0000000
+## s[1,3,11]   0.005240712   0.011785702 1.0001875 30000        0 1.0000000
+## s[2,3,11]   0.004749793   0.010878662 1.0010425 30000        0 1.0000000
+## s[1,4,11]   0.009727215   0.016300422 1.0000158 30000        0 1.0000000
+## s[2,4,11]   0.010362078   0.017472333 1.0001540 15154        0 1.0000000
+## s[1,1,12]   0.327444330   0.375123378 1.0000180 30000        0 1.0000000
+## s[2,1,12]   0.118569641   0.154909493 1.0000469 30000        0 1.0000000
+## s[1,2,12]   0.549382918   0.594733576 1.0003188  7987        0 1.0000000
+## s[2,2,12]   0.647948747   0.702188690 0.9999819 30000        0 1.0000000
+## s[1,3,12]   0.005131000   0.011509136 1.0002124 30000        0 1.0000000
+## s[2,3,12]   0.004557202   0.010341726 1.0009875 30000        0 1.0000000
+## s[1,4,12]   0.009544261   0.015981250 1.0000175 30000        0 1.0000000
+## s[2,4,12]   0.010040598   0.016912619 1.0001609 14934        0 1.0000000
+## s[1,1,13]   0.320282583   0.367334154 1.0000111 30000        0 1.0000000
+## s[2,1,13]   0.113933954   0.148716282 1.0000391 30000        0 1.0000000
+## s[1,2,13]   0.542150276   0.588380767 1.0003086  7739        0 1.0000000
+## s[2,2,13]   0.633378085   0.689558967 0.9999871 30000        0 1.0000000
+## s[1,3,13]   0.005027228   0.011269148 1.0002340 30000        0 1.0000000
+## s[2,3,13]   0.004393306   0.009870375 1.0009157 30000        0 1.0000000
+## s[1,4,13]   0.009368483   0.015664838 1.0000192 30000        0 1.0000000
+## s[2,4,13]   0.009741695   0.016361258 1.0001680 14733        0 1.0000000
+## E[1,1]      5.303065392   5.874327132 1.0000439 30000        0 1.0000000
+## E[2,1]      2.897069218   3.545987093 1.0000964 30000        0 1.0000000
+## E[1,2]      6.028520638   6.537138475 1.0002849 10281        0 1.0000000
+## E[2,2]      7.550974491   8.149308523 0.9999710 30000        0 1.0000000
+## E[1,3]      0.067569822   0.149462073 1.0000098 30000        0 1.0000000
+## E[2,3]      0.087348201   0.202882819 1.0001089 30000        0 1.0000000
+## E[1,4]      0.122592640   0.207417743 1.0000568 21250        0 1.0000000
+## E[2,4]      0.144857838   0.262311893 1.0000520 23893        0 1.0000000
+## E[1,5]      1.234035636   1.703165165 1.0000944 15469        0 1.0000000
+## E[2,5]      2.299384365   3.110953755 1.0000026 30000        0 1.0000000
+## D[1]        2.782133273   3.518069212 1.0000060 30000        0 0.9998000
+## D[2]       -0.972095215  -0.042234105 1.0001668 30000        0 0.9780667
+## D[3]        0.019963969   0.100716565 1.0000732 26362        1 0.5890000
+## D[4]        0.026120337   0.118166222 1.0001029 11547        1 0.5921000
+## D[5]       -0.540381524   0.096993522 0.9999742 30000        1 0.9607000
+## prob[1]     1.000000000   1.000000000 1.1677690 11249        0 1.0000000
+## prob[2]     0.000000000   0.000000000 1.0022463  9974        1 1.0000000
+## prob[3]     1.000000000   1.000000000 0.9999723 30000        1 1.0000000
+## prob[4]     1.000000000   1.000000000 0.9999953 30000        1 1.0000000
+## prob[5]     0.000000000   1.000000000 0.9999700 30000        1 1.0000000
+## deviance   81.334564363  92.753809173 1.0002800 10257        0 1.0000000</code></pre>
+</div>
+<div id="random-effects-model-for-lambda_1s" class="section level1">
+<h1>Random effects model for <span class="math inline">\(\lambda_{1,s}\)</span></h1>
+<p>This is the example from p 214.</p>
+<font color="#F00">
+<h2>
+Why won’t this give me values for lambda1?
+</h2>
+<p></font></p>
+<pre class="r"><code>model_code &lt;- &quot;
+model {
+  for (s in 1:5) {
+    loglam1[s] ~ dnorm(L, prec)
+    
+    log(lambda1[s]) &lt;- loglam1[s]
+    gamma12[s] &lt;- lambda1[s] * (1 - rho)  # !!! The book has [i] instead of [s].
+    gamma13[s] &lt;- lambda1[s] * rho
+  }
+  
+  gamma23 ~ dexp(0.001)
+  L ~ dnorm(0, 0.00001)
+  tau ~ dunif(0,1)
+  prec &lt;- 1/(tau*tau)
+  rho ~ dbeta(1,1)
+  
+  foohat ~ dnorm(foo, 1) # Avoid message about unused variable &#39;foo&#39;
+}
+
+&quot; %&gt;% textConnection
+
+parameters_to_save &lt;- c(
+  &quot;L&quot;, &quot;loglam1&quot;, &quot;lambda1&quot;, # &quot;gamma12&quot;, &quot;gamma13&quot;,
+  &quot;gamma23&quot;, &#39;foohat&#39;
+  )
+
+results &lt;- jags(
+  data = list(foo=99),  # this wrapper function really wants some data
+  # inits = initial_values,
+  parameters.to.save = parameters_to_save,
+  model.file = model_code,
+  n.chains = 1,
+  n.adapt = 100,
+  n.iter = 20000,
+  n.burnin = 10000)</code></pre>
+<pre><code>## 
+## Processing function input....... 
+## 
+## Done. 
+##  
+## Compiling model graph
+##    Resolving undeclared variables
+##    Allocating nodes
+## Graph information:
+##    Observed stochastic nodes: 0
+##    Unobserved stochastic nodes: 10
+##    Total graph size: 33
+## 
+## Initializing model
+## 
+## Adaptive phase, 100 iterations x 1 chains 
+## If no progress bar appears JAGS has decided not to adapt 
+##  
+## 
+##  Burn-in phase, 10000 iterations x 1 chains 
+##  
+## 
+## Sampling from joint posterior, 10000 iterations x 1 chains 
+## </code></pre>
+<pre><code>## Warning in FUN(X[[i]], ...): Failed to set trace monitor for deviance
+## There are no observed stochastic nodes</code></pre>
+<pre><code>## 
+## Calculating statistics....... 
+## 
+## Done.</code></pre>
+<pre class="r"><code>summary(results)</code></pre>
+<pre><code>##                   mean          sd       2.5%        25%        50%        75%
+## L             4.893795 316.6320243 -614.94409 -207.60237   4.455699  217.74772
+## loglam1[1]    4.877081 316.6374229 -614.26209 -207.95861   4.432881  218.12282
+## loglam1[2]    4.889522 316.6357279 -615.05889 -208.00649   4.564333  217.84136
+## loglam1[3]    4.893472 316.6363363 -614.33559 -207.49206   4.528341  217.84556
+## loglam1[4]    4.883612 316.6319335 -614.69356 -207.91880   4.541524  218.00139
+## loglam1[5]    4.895727 316.6375255 -614.24132 -207.55486   4.273514  217.98612
+## lambda1[1]          NA          NA         NA         NA         NA         NA
+## lambda1[2]          NA          NA         NA         NA         NA         NA
+## lambda1[3]          NA          NA         NA         NA         NA         NA
+## lambda1[4]          NA          NA         NA         NA         NA         NA
+## lambda1[5]          NA          NA         NA         NA         NA         NA
+## gamma23    1008.320580 999.1490098   26.87356  291.07779 707.678009 1399.62488
+## foohat       98.989522   0.9898579   97.03281   98.32811  98.983402   99.66593
+##                97.5% Rhat n.eff overlap0      f
+## L           630.0024   NA     1        1 0.5058
+## loglam1[1]  630.7887   NA     1        1 0.5060
+## loglam1[2]  630.7617   NA     1        1 0.5059
+## loglam1[3]  630.8195   NA     1        1 0.5055
+## loglam1[4]  630.7110   NA     1        1 0.5055
+## loglam1[5]  630.4425   NA     1        1 0.5060
+## lambda1[1]        NA   NA    NA       NA     NA
+## lambda1[2]        NA   NA    NA       NA     NA
+## lambda1[3]        NA   NA    NA       NA     NA
+## lambda1[4]        NA   NA    NA       NA     NA
+## lambda1[5]        NA   NA    NA       NA     NA
+## gamma23    3786.5765   NA     1        0 1.0000
+## foohat      100.9139   NA     1        0 1.0000</code></pre>
 </div>
 <div id="evsyn_markov_book_1" class="section level1">
 <h1><code>evsyn_markov_book_1</code></h1>
@@ -1344,95 +1883,112 @@ results &lt;- jags(data = data,
 <pre>
 Error in rjags::jags.model(file = model.file, data = data, inits = inits,  : 
   RUNTIME ERROR:
-Compilation error on line 56.
+Compilation error on line 71.
 Attempt to redefine node n[1]
 </pre>
 <p></font></p>
 <pre class="r"><code>model_code &lt;- &quot;
+
+data {
+  # smidge &lt;- 2.225074e-308 # ???
+  for (i in 1:2) {
+      n[i] &lt;- m12[i] + m13[i]
+  }
+}
+
 model {
 
-#MODEL
+  # MODEL
 
-# Random effects model for logs of study-specific  rates  lamda1 of leaving state 1
-for (s in 1:15) { loglam1[s] ~ dnorm(L,prec)    #  Random effects model for lambda1
-                         log(lambda1[s]) &lt;- loglam1[s]
-                        gamma12[s]&lt;-lambda1[s]*(1-rho)  #Study specific transition rates 1 to 2
-                        gamma13[s]&lt;-lambda1[s]*rho       #Study specific transition rates 1 to 3
-                        }   
+  # Random effects model for logs of study-specific rates
+  # lamda1 of leaving state 1
+  for (s in 1:15) {
+    loglam1[s] ~ dnorm(L,prec)        # Random effects model for lambda1
+    log(lambda1[s]) &lt;- loglam1[s]
+    gamma12[s] &lt;- lambda1[s]*(1-rho)  # Study specific transition rates 1 to 2
+    gamma13[s] &lt;- lambda1[s]*rho      # Study specific transition rates 1 to 3
+  }   
 
-# PRIORS
+  # PRIORS
+  
+  gamma23 ~ dexp(.001)              # vague prior for &#39;fixed&#39; transition rate 2 to 3
+  L ~ dnorm(0,.00001)               # vague prior for population mean loglamda1
+  tau ~ dunif(0,1)                  # vague prior for sd for population loglamda1
+  prec &lt;- 1/(tau*tau)  
+  rho ~ dbeta(1,1)                  # vague prior for proportion going to state 2 from 1
+  
+  
+  # LIKELIHOOD 
 
-gamma23 ~ dexp(.001)                              # vague prior for &#39;fixed&#39; transition rate 2 to 3
-L ~ dnorm(0,.00001)                                        # vague prior for population mean loglamda1
-tau ~ dunif(0,1)                                              # vague prior for sd for population loglamda1
-prec &lt;- 1/(tau*tau)  
-rho ~ dbeta(1,1)                                         # vague prior for proportion going to state 2 from 1
-
-
-#LIKELIHOOD 
-
-#2 studies reported aggregated total no. of transitions 
+  # 2 studies reported aggregated total no. of transitions 
     for (s in 1:2){
         for (i in 1:2){
-            r.agg[s,i,1:3]~dmulti(pi.agg[s,i,1:3],n.agg[s,i])
+            r.agg[s,i,1:3] ~ dmulti(pi.agg[s,i,1:3], n.agg[s,i])
         }
     }
     
     for (obs in 1:6){
-        pi.agg[obs,1,1]&lt;- exp(-(gamma12[study[obs]]+gamma13[study[obs]])*T[obs])
-        pi.agg[obs,1,2]&lt;- gamma12[study[obs]]*(exp(-gamma23 * T[obs])  - exp(- (gamma12[study[obs]]+gamma13[study[obs]])*T[obs] ) ) /((gamma12[study[obs]]+gamma13[study[obs]])- gamma23)
-        pi.agg[obs,1,3]&lt;- 1 - pi.agg[obs,1,1] - pi.agg[obs,1,2]
+        pi.agg[obs,1,1] &lt;- exp(-(gamma12[study[obs]] + gamma13[study[obs]])*T[obs])
+        pi.agg[obs,1,2] &lt;- gamma12[study[obs]]*(exp(-gamma23 * T[obs]) - exp(- (gamma12[study[obs]]+gamma13[study[obs]])*T[obs] ) ) /((gamma12[study[obs]]+gamma13[study[obs]]) - gamma23)
+        pi.agg[obs,1,3] &lt;- 1 - pi.agg[obs,1,1] - pi.agg[obs,1,2]
     
-        pi.agg[obs,2,1]&lt;- 0
-        pi.agg[obs,2,2]&lt;- exp(-gamma23)
-        pi.agg[obs,2,3]&lt;- 1 - pi.agg[obs,2,2]
+        pi.agg[obs,2,1] &lt;- 0
+        pi.agg[obs,2,2] &lt;- exp(-gamma23)
+        pi.agg[obs,2,3] &lt;- 1 - pi.agg[obs,2,2]
     }
 
-# 3 studies (4 data points) reported numbers number starting in state 1 and entering state 3 #during time T. Study 4 consists of 2 groups of individuals with different follow-up times, T
-for (i in 1 : 4) {
-       r.d[i] ~ dbin(pi.agg[(i+2),1,3],n.d[i]) 
-      }
+  # 3 studies (4 data points) reported numbers number starting in state 1 and entering state 3   
+  # during time T. Study 4 consists of 2 groups of individuals with different follow-up times, T
+  for (i in 1:4) {
+    r.d[i] ~ dbin(pi.agg[(i+2),1,3], n.d[i]) 
+  }
 
-# 8 studies reporting event history data informing individual transitions
-for (i in 1:2) {r12[i] ~dpois(mu[i+5])
-                      log(mu[i+5]) &lt;- log(E12[i])  +  log(gamma12[i+5])  }
-for (i in 1:2) {r13[i] ~dpois(mu[i+7])
-                      log(mu[i+7]) &lt;- log(E13[i])  +  log(gamma13[i+7])   }
-for (i in 1:4) {r23[i] ~dpois(mu[i+9])
-                      log(mu[i+9]) &lt;- log(E23[i])  +  log(gamma23)     }
+  # 8 studies reporting event history data informing individual transitions
+  for (i in 1:2) {
+    r12[i] ~ dpois(mu[i+5])
+    log(mu[i+5]) &lt;- log(E12[i]) + log(gamma12[i+5])
+  }
+  for (i in 1:2) {
+    r13[i] ~ dpois(mu[i+7])
+    log(mu[i+7]) &lt;- log(E13[i]) + log(gamma13[i+7])
+  }
+  for (i in 1:4) {
+    r23[i] ~ dpois(mu[i+9])
+    log(mu[i+9]) &lt;- log(E23[i]) + log(gamma23)
+  }
 
-# 2 studies reporting event history data on first tranistion from state 1
-for (i in 1:2) {
-       n[i] &lt;- m12[i] + m13[i]
-       n[i] ~ dpois(nu[i])                                     #   likelihood for Poisson rate
-       log(nu[i]) &lt;- log(E[i]) +  loglam1[i+13]  
-       m13[i] ~ dbin(rho,n[i])                            # likelihood for binomial proportion going to state 3
-      }
+  # 2 studies reporting event history data on first tranistion from state 1
+  for (i in 1:2) {
+    # n[i] &lt;- m12[i] + m13[i] #!!! to data block
+    n[i] ~ dpois(nu[i])                      # likelihood for Poisson rate
+    log(nu[i]) &lt;- log(E[i]) + loglam1[i+13]  
+    m13[i] ~ dbin(rho,n[i])                  # likelihood for binomial proportion going to state 3
+  }
 
-#Three different ways to summarise random effects model for lambda1, and form transition #rates. 
+  # Three different ways to summarise random effects model for lambda1, and form transition #rates. 
+  
+  # 1. Use population mean, L
+  g12[1] &lt;- (1-rho) * exp(L)
+  g13[1] &lt;- rho * exp(L)
+  
+  # 2. Use predictive distribution for loglam1
+  loglam1.pred ~ dnorm(L,prec)
+  log(lambda1.pred) &lt;- loglam1.pred
+  g12[2] &lt;- (1-rho) * lambda1.pred
+  g13[2] &lt;- rho * lambda1.pred
+  
+  # 3. Calibrate to study 15
+  g12[3] &lt;- (1-rho) * lambda1[15]
+  g13[3] &lt;- rho * lambda1[15]
 
-#1. Use population mean, L
-g12[1] &lt;- (1-rho) * exp(L)
-g13[1] &lt;-   rho * exp(L)
-
-#2. Use predictive distribution for loglam1
-loglam1.pred~dnorm(L,prec)
-log(lambda1.pred)&lt;-loglam1.pred
-g12[2] &lt;- (1-rho) * lambda1.pred
-g13[2] &lt;- rho * lambda1.pred
-
-#3. Calibrate to study 15
-g12[3] &lt;- (1-rho) * lambda1[15]
-g13[3] &lt;- rho * lambda1[15]
-
-#Transition probabilities over observation period T=1, for each RE summary
-for (j in 1:3){
-    P11[j]&lt;-exp(-(g12[j]+g13[j]))
-    P12[j]&lt;-g12[j]*(exp(-gamma23)-exp(-(g12[j]+g13[j])))/(g12[j]+g13[j]-gamma23)
-    P13[j]&lt;- (1-P11[j]-P12[j])
-    P22[j]&lt;- exp(-gamma23)
-    P23[j]&lt;- 1-P22[j]
-}
+  # Transition probabilities over observation period T=1, for each RE summary
+  for (j in 1:3){
+    P11[j] &lt;- exp(-(g12[j] + g13[j]))
+    P12[j] &lt;- g12[j]*(exp(-gamma23) - exp(-(g12[j] + g13[j])))/(g12[j] + g13[j] - gamma23)
+    P13[j] &lt;- (1.0 - P11[j] - P12[j])
+    P22[j] &lt;- exp(-gamma23)
+    P23[j] &lt;- 1 - P22[j]
+  }
 
 }
 
@@ -1441,8 +1997,8 @@ for (j in 1:3){
 # DATA LIST
 data &lt;- list(                                                                                           
 
-#STUDIES 1-2
-#2 studies reporting aggregate data for all states, for given observation cycle, T
+  #STUDIES 1-2
+  #2 studies reporting aggregate data for all states, for given observation cycle, T
     r.agg=structure(.Data=c(87, 4,  9,  
                                                 0,  3,  1,
                         
@@ -1451,22 +2007,24 @@ data &lt;- list(
     n.agg=structure(.Data=c(100,    4,
                                                 233,    8), .Dim=c(2,2)), 
 
-# STUDIES 3-5
-#3 studies reporting no. transitions to death for given observation cycle, T
-       r.d=c(38,15,11,60),      n.d=c(181,177,103,335) , 
+  # STUDIES 3-5
+  # 3 studies reporting no. transitions to death for given observation cycle, T
+  r.d=c(38,15,11,60),      n.d=c(181,177,103,335) , 
 
-#Observation time &amp; study number for 6 aggregate data observations
-T=c(1,1, 2,1.5,2,5), study=c(1,2,3,4,4,5),
+  #Observation time &amp; study number for 6 aggregate data observations
+  T=c(1,1, 2,1.5,2,5), study=c(1,2,3,4,4,5),
 
-# STUDIES 6-13
-#  8 studies with event history data on individual transitions
-   r12=c(8,20),               E12=c(120,620),
-   r13=c( 12,44),            E13=c(140,677),  
-   r23=c(9,12,5,6),         E23=c(34,35,15,25),
+  # STUDIES 6-13
+  # 8 studies with event history data on individual transitions
+  r12=c(8,20),             E12=c(120,620),
+  r13=c( 12,44),           E13=c(140,677),  
+  r23=c(9,12,5,6),         E23=c(34,35,15,25),
 
-#STUDIES 14-15
-# 2 studies with event history data on first transition from state 1
-     m12=c(18,30),     m13=c(40,75),         E=c(380,1169) #, trailing comma was OK in WinBUGS     
+  # STUDIES 14-15
+  # 2 studies with event history data on first transition from state 1
+  m12=c(18,30),
+    m13=c(40,75),
+    E=c(380,1169) #!!! , trailing comma was OK in WinBUGS     
 
 )                                          
      
@@ -1491,8 +2049,7 @@ results &lt;- jags(data = data,
             n.chains = length(initial_values),
             n.adapt = 100,
             n.iter = 50000,
-            n.burnin = 20000,
-            n.thin = 2)
+            n.burnin = 20000)
 
 summary(results)</code></pre>
 </div>
@@ -1500,14 +2057,22 @@ summary(results)</code></pre>
 <h1><code>evsyn_markov_book_2</code></h1>
 <p>Including Studies with Treatment Comparisons</p>
 <font color="#FF0000">
-<pre>
-Error in rjags::jags.model(file = model.file, data = data, inits = inits,  : 
-  RUNTIME ERROR:
+<pre>RUNTIME ERROR:
 Compilation error on line 70.
-Attempt to redefine node n[1]
-</pre>
+Attempt to redefine node n[1]</pre>
 <p></font></p>
+<p>I fixed that by moving one line of code to a data block. Now I
+get:</p>
+<pre><code>  Error in node r.aggt[1,1,1:3]
+Node inconsistent with parents</code></pre>
 <pre class="r"><code>model_code &lt;- &quot;
+data{
+  smidge &lt;- 2.225074e-308
+  for (i in 1:2) {
+    n[i] &lt;- m12[i] + m13[i] + smidge # !!! to data block
+  }
+}
+
 model {
 
 #MODEL
@@ -1535,14 +2100,14 @@ log(h)&lt;- logh
 #2 studies reported aggregated total no. of transitions 
     for (s in 1:2){
         for (i in 1:2){
-            r.agg[s,i,1:3]~dmulti(pi.agg[s,i,1:3],n.agg[s,i])
-            r.aggt[s,i,1:3]~dmulti(pi.aggt[s,i,1:3],n.aggt[s,i])
+            r.agg[s,i,1:3] ~ dmulti(pi.agg[s,i,1:3],n.agg[s,i])
+            r.aggt[s,i,1:3] ~ dmulti(pi.aggt[s,i,1:3],n.aggt[s,i])
         }
     }
 
     for (s in 1:2){
-        pi.aggt[s,1,1]&lt;- exp(-(gamma12[s]*h+gamma13[s])*T[s])
-        pi.aggt[s,1,2]&lt;- gamma12[s]*h*(exp(-gamma23 * T[s])  
+        pi.aggt[s,1,1] &lt;- exp(-(gamma12[s]*h+gamma13[s])*T[s])
+        pi.aggt[s,1,2] &lt;- gamma12[s]*h*(exp(-gamma23 * T[s])  
         - exp(-(gamma12[s]*h+gamma13[s])*T[s] ) ) /(gamma12[s]*h+gamma13[s] - gamma23 )
         pi.aggt[s,1,3]&lt;- 1 - pi.aggt[s,1,1] - pi.aggt[s,1,2]
     
@@ -1561,51 +2126,51 @@ log(h)&lt;- logh
         pi.agg[obs,2,3]&lt;- 1 - pi.agg[obs,2,2]
     }
 
-# 3 studies (4 data points) reported numbers number starting in state 1 and entering state 3 #during time T. Study 4 consists of 2 groups of individuals with different follow-up times, T
-for (i in 1 : 4) {
-       r.d[i] ~ dbin(pi.agg[(i+2),1,3],n.d[i]) 
-      }
-
-# 8 studies reporting event history data informing individual transitions
-for (i in 1:2) {r12[i] ~dpois(mu[i+5])
-                      log(mu[i+5]) &lt;- log(E12[i])  +  log(gamma12[i+5])  }
-for (i in 1:2) {r13[i] ~dpois(mu[i+7])
-                      log(mu[i+7]) &lt;- log(E13[i])  +  log(gamma13[i+7])   }
-for (i in 1:4) {r23[i] ~dpois(mu[i+9])
-                      log(mu[i+9]) &lt;- log(E23[i])  +  log(gamma23)     }
-
-# 2 studies reporting event history data on first tranistion from state 1
-for (i in 1:2) {
-       n[i] &lt;- m12[i] + m13[i]
-       n[i] ~ dpois(nu[i])                                     #   likelihood for Poisson rate
-       log(nu[i]) &lt;- log(E[i]) +  loglam1[i+13]  
-       m13[i] ~ dbin(rho,n[i])                            # likelihood for binomial proportion going to state 3
-      }
-
-#Three different ways to summarise random effects model for lambda1, and form transition #rates. 
-
-#1. Use population mean, L
-g12[1] &lt;- (1-rho) * exp(L)
-g13[1] &lt;-   rho * exp(L)
-
-#2. Use predictive distribution for loglam1
-loglam1.pred~dnorm(L,prec)
-log(lambda1.pred)&lt;-loglam1.pred
-g12[2] &lt;- (1-rho) * lambda1.pred
-g13[2] &lt;- rho * lambda1.pred
-
-#3. Calibrate to study 15
-g12[3] &lt;- (1-rho) * lambda1[15]
-g13[3] &lt;- rho * lambda1[15]
-
-#Transition probabilities over observation period T=1, for each RE summary
-for (j in 1:3){
-    P11[j]&lt;-exp(-(g12[j]+g13[j]))
-    P12[j]&lt;-g12[j]*(exp(-gamma23)-exp(-(g12[j]+g13[j])))/(g12[j]+g13[j]-gamma23)
-    P13[j]&lt;- (1-P11[j]-P12[j])
-    P22[j]&lt;- exp(-gamma23)
-    P23[j]&lt;- 1-P22[j]
-}
+  # 3 studies (4 data points) reported numbers number starting in state 1 and entering state 3 #during time T. Study 4 consists of 2 groups of individuals with different follow-up times, T
+  for (i in 1 : 4) {
+    r.d[i] ~ dbin(pi.agg[(i+2),1,3],n.d[i]) 
+  }
+  
+  # 8 studies reporting event history data informing individual transitions
+  for (i in 1:2) {r12[i] ~dpois(mu[i+5])
+                        log(mu[i+5]) &lt;- log(E12[i])  +  log(gamma12[i+5])  }
+  for (i in 1:2) {r13[i] ~dpois(mu[i+7])
+                        log(mu[i+7]) &lt;- log(E13[i])  +  log(gamma13[i+7])   }
+  for (i in 1:4) {r23[i] ~dpois(mu[i+9])
+                        log(mu[i+9]) &lt;- log(E23[i])  +  log(gamma23)     }
+  
+  # 2 studies reporting event history data on first tranistion from state 1
+  for (i in 1:2) {
+    # n[i] &lt;- m12[i] + m13[i] # !!! to data block
+    n[i] ~ dpois(nu[i])                       # likelihood for Poisson rate
+    log(nu[i]) &lt;- log(E[i]) +  loglam1[i+13]  
+    m13[i] ~ dbin(rho,n[i])                   # likelihood for binomial proportion going to state 3
+  }
+  
+  #Three different ways to summarise random effects model for lambda1, and form transition #rates. 
+  
+  #1. Use population mean, L
+  g12[1] &lt;- (1-rho) * exp(L)
+  g13[1] &lt;-   rho * exp(L)
+  
+  #2. Use predictive distribution for loglam1
+  loglam1.pred~dnorm(L,prec)
+  log(lambda1.pred)&lt;-loglam1.pred
+  g12[2] &lt;- (1-rho) * lambda1.pred
+  g13[2] &lt;- rho * lambda1.pred
+  
+  #3. Calibrate to study 15
+  g12[3] &lt;- (1-rho) * lambda1[15]
+  g13[3] &lt;- rho * lambda1[15]
+  
+  #Transition probabilities over observation period T=1, for each RE summary
+  for (j in 1:3){
+    P11[j] &lt;- exp(-(g12[j]+g13[j]))
+    P12[j] &lt;- g12[j]*(exp(-gamma23)-exp(-(g12[j]+g13[j])))/(g12[j]+g13[j]-gamma23)
+    P13[j] &lt;- (1-P11[j]-P12[j])
+    P22[j] &lt;- exp(-gamma23)
+    P23[j] &lt;- 1-P22[j]
+  }
 
 }
 
@@ -1614,8 +2179,8 @@ for (j in 1:3){
 # DATA LIST
 data &lt;- list(                                                                                           
 
-#STUDIES 1-2
-#2 studies reporting aggregate data for all states, for given observation cycle, T
+# STUDIES 1-2
+# 2 studies reporting aggregate data for all states, for given observation cycle, T
     r.agg=structure(.Data=c(87, 4,  9,  
                                                 0,  3,  1,
                         
@@ -1665,14 +2230,13 @@ parameters_to_save &lt;- c(&quot;P11&quot;, &quot;P12&quot;, &quot;P13&quot;, &q
 
 
 results &lt;- jags(data = data,
-            inits = initial_values,
-            parameters.to.save = parameters_to_save,
-            model.file = model_code,
-            n.chains = length(initial_values),
-            n.adapt = 100,
-            n.iter = 50000,
-            n.burnin = 20000,
-            n.thin = 2)
+                inits = initial_values,
+                parameters.to.save = parameters_to_save,
+                model.file = model_code,
+                n.chains = length(initial_values),
+                n.adapt = 100,
+                n.iter = 50000,
+                n.burnin = 20000)
 
 summary(results)</code></pre>
 </div>
