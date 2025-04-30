@@ -14,4 +14,4 @@ Code that needed to be tweaked to run in JAGS:
 * Chapter_09: `rank` function; multi-dimensional data reformatted as list of matrixes.
 * Chapter_11: 'Attempt to redefine node' errors solved with data blocks.
 * Chapter 12: `ranked` function.
-* Chapter_10: Attempt to redefine node; Invalid parent values
+* Chapter_10: Attempt to redefine node; Invalid parent values: Most of these issues are from 3d arrays in R being indexed differently than in JAGS. Divide by zero errors were worked around by adding a vanishingly small quantity to the denominator.
