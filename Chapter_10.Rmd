@@ -26,13 +26,13 @@ library('jagshelper')
 library('jagsUI')
 library('mcmcplots')  # caterplot
 library('dplyr')
-library('tidyr') # pivot_longer
-library('knitr') # HTML table display
+library('tidyr')      # pivot_longer
+library('knitr')      # HTML table display
 
 ```
 
 
-# Example 10.2 revisited, p 203
+# Example 10.2 revisited (p 203)
 
 This model is hand-typed from the book. The challenge here is that we can no longer pretend that JAGS/BUGS code for data is the same as R code. That is true for lists and matrixes, but not for higher-dimensional arrays, so the data needs to be munged into the row-major order that JAGS expects. 
 
@@ -61,7 +61,7 @@ rr=structure(
       1,		0,	0,	0,	 1,	  # Row 4 (Pex)
     
                               # Fluticasone
-     66,   32,	0,	0,	 2,		# Row 1 (STW)
+     66,   32,	0,	0,	 2,	  # Row 1 (STW)
      42,  752,	0,	5,	20,	  # Row 2 (UTW)
       0,    0,  0,	0,	 0,	  # Row 3 (Hex)
       0,    4,  0,	1,	 0    # Row 4 (Pex)
@@ -71,7 +71,8 @@ rr=structure(
 
 # The Seretide matrix is t(r[,,1]), and the Fluticasone matrix is t(r[,,2])
 
-# Now we need to shift the values around to the arrangement JAGS expects. Start with a 3d array full of placeholder values:
+# Now we need to shift the values around to the arrangement JAGS expects. 
+# Start with a 3d array full of placeholder values:
 jr <- structure(
   .Data=rep(-1, 2*4*5),     # -1 can't really happen
   .Dim=c(2,4,5)             # Matrix dimensions
@@ -178,7 +179,7 @@ ttl %>%
 These numbers correspond well to those in Table 10.4, p 204. I have not included rows showing the probabilities of transitioning from the terminal state 'TF', since that state can only transition to itself.
 
 
-## Residual Deviance
+## Residual Deviance (p 205)
 
 Here we add the code from p205 to compute residual deviance. The data remains the same.
 
@@ -238,6 +239,133 @@ display_order <- dimnames(dev_summary)[[1]] %>% sort %>% "["(c(2:10, 1))
 
 dev_summary[display_order,]
 ```
+
+These values are comparable to those in Table 10.5, p205.
+
+# `Example 10.3 revisited: Prophylactic treatments for asthma`
+
+I typed this additional code in from the book (p208), and added it to the code from Example 10.2.
+
+Note that the code for this model is different from that given in the Supplemental Materials (`asthma_1` and `asthma_2` below).
+
+```{r example_10_3_revisited}
+model_code <- "
+data{
+  smidge <- 2.225074e-308 # from `.Machine$double.xmin` in R
+  # Yes, it is a kludge, but that is a really small number!
+}
+
+model{
+  for (tmt in 1:2) {    # tmt: 1=Seretide, 2=Fluticasone
+    for (i in 1:4){     # four non-absorbing states
+      r[tmt, i, 1:5] ~ dmulti(pi[tmt, i, 1:5], n[tmt, i]) # multinomial data
+      pi[tmt, i, 1:5] ~ ddirch(prior[tmt, i, 1:5])        # Dirichlet prior
+      ## We could just add the new operations into the existing loops:
+      # for (j in 1:5){
+      #   rhat[tmt, i, j] <- pi[tmt, i, j] * n[tmt, i] + smidge # Predicted no. given model
+      #   dev[tmt, i, j] <- 2 * r[tmt, i, j] * log( r[tmt, i, j]/rhat[tmt, i, j]) # residual deviance for each cell
+      # }
+      # resdev[tmt, i] <- sum(dev[tmt, i, 1:5])         # residual deviance for each row
+    }
+  }
+  
+  # Instead, I use separate loops to emphasize the new code.
+  for (tmt in 1:2) {    # tmt: 1=Seretide, 2=Fluticasone
+    for (i in 1:4){     # four non-absorbing states
+      for (j in 1:5){
+        rhat[tmt, i, j] <- pi[tmt, i, j] * n[tmt, i] + smidge # Predicted no. given model
+        dev[tmt, i, j] <- 2 * r[tmt, i, j] * log(r[tmt, i, j]/rhat[tmt, i, j]) # residual deviance for each cell
+      }
+      resdev[tmt, i] <- sum(dev[tmt, i, 1:5])         # residual deviance for each row
+    }
+  }
+  
+  resdevtot <- sum(resdev[1:2, 1:4])                  # total residual deviance
+
+  # This last section is Example 10.3 revisited, p 208:
+  for (tmt in 1:2){                      # Loop over treatment
+    for (i in 1:5){                      # Initialize starting state: 1 in
+      s[tmt, i, 1] <- equals(i, 1)       # STW, 0 in all other states
+    }
+    
+    for (i in 1:4){
+      for (t in 2:13){                   # Run the model for 12 cycles
+        s[tmt, i, t] <- inprod(s[tmt, 1:4, t-1], pi[tmt, 1:4, i]) # Calculate inner product
+      }
+      E[tmt, i] <- sum(s[tmt, i, 2:13])  # Sum up the time spent in state i
+    }
+    E[tmt, 5] <- 12 - sum(E[tmt, 1:4])   # Time in TF is 12 weeks
+  }                                      # minus time in states 1 to 4.
+                                         # Additional expected time in
+  for (i in 1:5){
+    D[i] <- E[1, i] - E[2, i]
+    prob[i] <- step(D[i])
+  }
+}
+" %>% textConnection
+
+results_10_3 <- jags(
+  data = data,
+  parameters.to.save = c("E", "D", "prob"),
+  model.file = model_code,
+  n.chains = 1,
+  n.adapt = 100,
+  n.iter = 50000,
+  n.burnin = 20000
+)
+
+summary_10_3 <- summary(results_10_3)
+
+summary_10_3
+```
+
+Reformat these results for comparison to Table 10.6 (p 209):
+
+```{r reformat_summary_10_3, results='asis'}
+
+summary_10_3 <- summary(results_10_3)
+
+keeper_cols <- c("mean", "2.5%", "97.5%")
+
+states <- c('STW', 'UTW', 'Hex', 'Pex', 'TF')
+treatments = c('Seretide', 'Fluticasone')
+
+# Expected number of weeks in state
+E_seretide_flags <- dimnames(summary_10_3)[[1]] %>% grepl("E[1", ., fixed=TRUE)
+E_fluticasone_flags <- dimnames(summary_10_3)[[1]] %>% grepl("E[2", ., fixed=TRUE)
+expected_weeks <- rbind(
+    summary_10_3[E_seretide_flags, keeper_cols],
+    summary_10_3[E_fluticasone_flags, keeper_cols]
+  ) %>% 
+  as.data.frame %>% 
+  mutate(
+    treatment=c(rep('Seretide', sum(E_seretide_flags)), rep('Fluticasone', sum(E_fluticasone_flags))),
+    state=c(states, states),
+    value=sprintf("%0.2f", mean),
+  ) %>% 
+  select(treatment, state, value) %>%
+  pivot_wider(id_cols='treatment', names_from='state')
+
+expected_weeks %>%
+  as.data.frame %>% 
+  knitr::kable(., format='html', escape=FALSE, caption="Expected number of weeks in state")
+
+# Additional expected time in state for Seretide compared to Fluticasone
+D_flags <- dimnames(summary_10_3)[[1]] %>% grepl("D[", ., fixed=TRUE)
+summary_10_3[D_flags, c("mean", "2.5%", "97.5%")] %>% 
+  apply(1, function(v) sprintf("%0.2f (%0.1f, %0.1f)", v[1], v[2], v[3])) %>% 
+  setNames(., nm=states) %>% as.data.frame %>% t %>%
+  knitr::kable(., format='html', escape=FALSE, caption="Additional expected time in state for Seretide compared to Fluticasone")
+
+# Probability that expected time in state is greater for Seretide than Fluticasone
+prob_flags <- dimnames(summary_10_3)[[1]] %>% grepl("prob[", ., fixed=TRUE)
+summary_10_3[prob_flags, "mean"] %>% 
+  setNames(., nm=states) %>% sapply(function(v) sprintf("%0.3f", v[1])) %>% as.data.frame %>% t %>%
+  knitr::kable(., format='html', escape=FALSE, caption="Probability that expected time in state is greater for Seretide than Fluticasone")
+
+```
+
+These results are comparable to those in Table 10.6 (p 209).
 
 
 # `asthma_1`
@@ -422,14 +550,17 @@ results <- jags(data = data,
             n.chains = length(initial_values),
             n.adapt = 100,
             n.iter = 50000,
-            n.burnin = 20000,
-            n.thin = 2)
+            n.burnin = 20000)
 
 summary(results)
 
 ```
 
-# Random effects model for $\lambda_{1,s}$
+# Estimating transition parameters from a synthesis of several studies
+
+## Modeling study effects
+
+Random effects model for $\lambda_{1,s}$
 
 This is the example from p 214. 
 
@@ -444,7 +575,7 @@ model {
     loglam1[s] ~ dnorm(L, prec)
     
     log(lambda1[s]) <- loglam1[s]
-    gamma12[s] <- lambda1[s] * (1 - rho)  # !!! The book has [i] instead of [s].
+    gamma12[s] <- lambda1[s] * (1 - rho)  # !!! The book has [i] instead of [s] !!!
     gamma13[s] <- lambda1[s] * rho
   }
   
@@ -477,6 +608,22 @@ results <- jags(
 summary(results)
 
 ```
+
+## Synthesis of studies reporting aggregate data
+
+This is the code from pp 216-217.
+
+## Incorportating studies that provide event history data
+
+Add the code from p 219.
+
+## Reporting results from a Random Effects Model
+
+Add the code from p 220.
+
+## Incorporating Treatment Effects
+
+Add the code from p 223.
 
 
 # `evsyn_markov_book_1`
@@ -713,7 +860,7 @@ model {
 
 #MODEL
 
-# Random effects model for logs of study-specific  rates  lamda1 of leaving state 1
+# Random effects model for logs of study-specific rates lamda1 of leaving state 1
 for (s in 1:15) { 
   loglam1[s] ~ dnorm(L,prec) 	   #  Random effects model for lambda1
 	log(lambda1[s]) <- loglam1[s]
@@ -906,3 +1053,10 @@ results <- jags(data = data,
 summary(results)
 
 ```
+
+# To Do: 
+
+* Enter the code on the following pages: 216-217, 219, 220, 223
+* Compare to the results in the book
+* Compare to the programs from the Supplemental Materials
+* Where do the models from the Supplemental Materials (`evsyn_markov_book_1` and `evsyn_markov_book_2`) fit in? Note that they use for "s in 1:15")
