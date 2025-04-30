@@ -4,7 +4,7 @@ This is a collection of RMarkdown documents that run the original WinBUGs code f
 
 STATUS: The following chapters contain code examples that are not yet working in JAGS:
 
-* Chapter_10: Attempt to redefine node; Invalid parent values
+* Chapter_10: Some examples from the book have been typed in but not yet run. All the files from the Supplemental Materials compile and execute; some have not been checked against the results in the book or in WinBUGS.
 
 
 
@@ -14,4 +14,4 @@ Code that needed to be tweaked to run in JAGS:
 * Chapter_09: `rank` function; multi-dimensional data reformatted as list of matrixes.
 * Chapter_11: 'Attempt to redefine node' errors solved with data blocks.
 * Chapter 12: `ranked` function.
-
+* Chapter_10: Attempt to redefine node; Invalid parent values
