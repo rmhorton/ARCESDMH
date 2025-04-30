@@ -6,7 +6,11 @@ output: html_document
 ---
 
 
-NOTE: All the examples for this chapter now compile and run. Those not explicitly noted as matching the results in the text or winBUGS have not been checked against those sources.
+NOTE: 
+
+Several chunks (marked by 'eval=FALSE') have only been typed in by hand from the code in the text. These have not been run.
+
+Models not explicitly noted as matching the results in the text or winBUGS have not been checked against those sources.
 
 So far I've seen three major gotchas for porting the WinBUGS code for this chapter to R/JAGS, listed here with workarounds:
 
@@ -597,7 +601,6 @@ parameters_to_save <- c(
 
 results <- jags(
   data = list(foo=99),  # this wrapper function really wants some data
-  # inits = initial_values,
   parameters.to.save = parameters_to_save,
   model.file = model_code,
   n.chains = 1,
@@ -611,22 +614,164 @@ summary(results)
 
 ## Synthesis of studies reporting aggregate data
 
+<font color="#F00">
+The code in the next few chunks has just been typed in by hand from the textbook. It has not been tested, or even run. I am lying to the IDE (for the moment) to tell it that this JAGS code is actually R code, because the syntax is similar enough to make the coding tools useful.
+</font>
+
 This is the code from pp 216-217.
+
+```{r p216, eval=FALSE}
+
+# code from pp 216-217
+for (s in 1:2){
+  for (i in 1:2){                                               # Multinomial likelihood for
+    r.agg[s, i, 1:3] ~ dmulti(pi.agg[s, i, 1:3], n.agg[s, i])   # studies 1 & 2 reporting
+  }                                                             # aggregated number of transitions
+}
+
+
+# Calculate transition probabilities relevant to each observation (study and cycle-length specific). 
+# These are functions of basic parameters via equations in Fig. 8.9 and equation (8.4)
+for (obs in 1:6){
+  pi.agg[obs, 1, i] < exp( -( gamma12[ study[obs]] + gamma13[ stucy[obs]] * T[obs]))
+  pi.agg[obs, 1, 2] <- gamma12[study[obs]]*(exp(gamma23 * T[obs]) - exp(-(gamma12[study[obs]]+gamma13[study[obs]]) * T[obs])) /(gamma12[study[obs]] + gamma13[study[obs]] - gamma23) #!!! missing closing parenthesis
+  pi.agg[obs, 1, 3] <- 1 -1 pi.agg{obs, i, i] - pi.agg[obs, 1, 2]}
+  pi.agg[obs, 2, 1] <- 0
+  pi.agg[obs, 2, 2] <- exp(-gamma23)
+  pi.agg[obs, 2, 3] <- 1 - pi.agg[obs, 2, 2]
+}
+
+
+# Studies 3-5 (4 data points) reported no. transitions from state 1 to state 3.
+for (i in 1:4){
+  r.d[i] ~ dbin(pi.agg[(i+2), 1, 3], n.d[i])
+}
+
+# !!! This 3d data will need rearranging.
+
+# Studies 1 & 2 report aggregate data for all states, for given observation cycle length T
+data <- list(
+  r.agg = structure(.Data=c( 87,  4,  9
+                              0,  3,  1,
+                              
+                            210,  8, 15,
+                              0,  5,  3), .Dim=c(2,2,3)),
+  n.agg = structure(.Data=c(100,  4,
+                            233,  8), .Dim=c(2, 2)),
+  r.d = c(38, 15, 11, 60),
+  n.d = c(181, 177, 103, 335),
+  T = c(1,1,2,1,5,2,5),
+  study=c(1,2,3,4,4,5)
+)
+
+```
 
 ## Incorportating studies that provide event history data
 
 Add the code from p 219.
 
+```{r p219, eval=FALSE}
+
+# code from p 219
+for (i in 1:2){                                      # Studies 6-7 report event
+  r12[i] ~ dpois(mu[i+5])                            # history data on transition 1 -> 2
+  log(mu[i+5]) <- log(E12[i]) + log(gamma12[i+5])    # Poisson likelihood
+}
+
+for (i in 1:2){                                      # Studies 8-9 report event
+  r13[i] ~ dpois(mu[i+7])                            # history data on transition 1 -> 3
+  log(mu[i+7]) <- log(E13[i]) + log(gamma13[i+7])    # Poisson likelihood
+  
+}
+
+for (i in 1:4){                                      # Studies 10-13 report event
+  r23[i] ~ dpois(mu[i+9])                            # history data on transition 2 -> 3
+  log(mu[i+9]) <- log(E23[i]) + log(gamma23)         # Poisson likelihood
+}
+                                                     # 2 studies reporting event
+for (i in 1:2){                                      # history data on first transition
+  n[i] <- m12[i] + m13[i]                            # from state 1
+  n[i] ~ dpois(nu[i])                                # likelihood for Poisson rate
+  log(nu[i]) <- log(E[i]) + loglam1[i +]
+  
+  m13[i] ~ dbin(rho, n[i])                           # likelihood for binomial
+}                                                    # proportion going to state 3
+
+
+more_data <- list(
+  r12 = c( 8, 20),      E12 = c(120, 620),           # STUDIES 6-7
+  r13 = c(12, 44),      E13 = c(140, 677),           # STUDIES 8-9
+  r23 = c(9, 12, 5, 6), E23 = c(34, 35, 15, 25),     # STUDIES 10-13
+  m12 = c(18, 30), m13 = c(40, 75), E = c(380, 1169) # STUDIES 14-15
+  
+)
+
+```
+
 ## Reporting results from a Random Effects Model
 
 Add the code from p 220.
+
+```{r p220, eval=FALSE}
+
+# code from p 220
+g12[1] <- (1 - rho) * exp(L)       # 1. Random Effects mean L
+g13[1] <- rho * exp(L)
+
+loglam1.pred ~ dnorm(L, prec)      # 2. Predictive distribution
+log(lambda1.pred) <- loglam1.pred  # for loglam1
+g12[2] <- (1 - rho) * lambda1.pred
+g13[2] <- rho * lambda1.pred
+
+g12[3] <- (1 - rho) * lambda1[15]  # Calibrate to study 15
+g13[3] <- rho * lambda1[15]
+
+# Transition probabilities over cycle length T=1, from the Forwards equations (Fig 10.9).
+# Calaulated for the three methods of summarizing the random effects distribution for the rate of leaving State 1.
+
+for (j in 1:3){                          
+  P11[j] <- exp(-(g12[j] + g13[j]))
+  P12[j] <- g12[j] * (exp(-gamma23)) - exp(-(g12[j] + g13[j] - gamma23))
+  P13[j] <- (1 - P11[j] - P12[j])
+  P22[j] <- exp(-gamma23)
+  P23[j] <- 1 - P22[j]
+}
+
+```
 
 ## Incorporating Treatment Effects
 
 Add the code from p 223.
 
+```{r p223, eval=FALSE}
+
+
+# code from p 223
+for (s in 1:2){                                                    # Studies 1 & 2
+  for (i in 1:2) {
+    r.agg[s, i, 1:3] ~ dmulti(pi.agg[s, i, 1:3], n.agg[s, i])      # Treatment arm
+    r.aggt[s, i, 1:3] ~ dmulti(pi.aggt[s, i, 1:3], n.aggt[s, i])   # likelihood
+  }
+  
+  # Forward equations for treatment arms - inclluding treatment effects h
+  pi.aggt[s, 1, 1] <- exp(-(gamma12[s]*h + gamma13[s])*T[s])
+  pi.aggt[s, 1, 2] <- gamma12[s]*h * (exp(-gamma23*T[s]) - exp( -(gamma12[s]*h + gamma13[s]) * T[s]))/(gamma12[s]*h + gamma13[s] - gamma23)
+  pi.aggt[s, 1, 3] <- 1 - pi.aggt[s, 1, 1] - pi.aggt[s, 1, 2]
+  pi.aggt[s, 2, 1] <- 0
+  pi.aggt[s, 2, 2] <- exp(-gamma23)
+  pi.aggt[s, 2, 3] <- 1 - pi.aggt[s, 2, 2]
+}
+
+logh ~ dnorm(0, 0.00001)    # Normal prior on log-hazard ratio
+log(h) <- logh
+
+```
+
+
+
 
 # `evsyn_markov_book_1`
+
 Synthesis of Studies Reporting Aggregate and Event History Data
 
 I had to make two kinds of changes to get this to run:
@@ -1059,4 +1204,4 @@ summary(results)
 * Enter the code on the following pages: 216-217, 219, 220, 223
 * Compare to the results in the book
 * Compare to the programs from the Supplemental Materials
-* Where do the models from the Supplemental Materials (`evsyn_markov_book_1` and `evsyn_markov_book_2`) fit in? Note that they use for "s in 1:15")
+* The models from the Supplemental Materials (`evsyn_markov_book_1` and `evsyn_markov_book_2`) seem to be polished quite a bit from the text in the book. Note that they use for "s in 1:15" to step through all 15 studies, rather than in separate little stody-specific loops)
