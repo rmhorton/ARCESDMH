@@ -2,12 +2,6 @@
 
 This is a collection of RMarkdown documents that run the original WinBUGs code from the book in JAGS from R.
 
-STATUS: The following chapters contain code examples that are not yet working in JAGS:
-
-* Chapter_10: All the files from the Supplemental Materials compile and execute; some have not been checked against the results in the book or in WinBUGS. Some examples from the book have been typed in but not yet run. 
-
-
-
 Code that needed to be tweaked to run in JAGS:
 
 * Chapter_04: There were 'Attempt to redefine node' errors in a couple of models. I moved the offending lines into data blocks, as recommended on [stackoverflow](https://stackoverflow.com/questions/78502051/how-to-convert-winbugs-code-into-jags-r-code).
