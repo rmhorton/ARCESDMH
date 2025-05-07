@@ -6,11 +6,7 @@ output: html_document
 ---
 
 
-NOTE: 
-
-Models not explicitly noted as matching the results in the text or winBUGS have not been checked against those sources.
-
-So far I've seen three major gotchas for porting the WinBUGS code for this chapter to R/JAGS, listed here with workarounds:
+Notes on porting from WinBUGS: So far I've seen three major gotchas for porting the WinBUGS code for this chapter to R/JAGS, listed here with workarounds:
 
 * "Attempt to redefine node" error: try moving assignments to a data block.
 * "Error in node (r[1,3,1]/rhat[1,3,1]) Invalid parent values": this is actually a divide-by-zero error in disguise; try adding a really small value to the denominator.
@@ -247,7 +243,7 @@ These values are comparable to those in Table 10.5, p205.
 
 I typed this additional code in from the book (p208), and added it to the code from Example 10.2.
 
-Note that the code for this model is different from that given in the Supplemental Materials (`asthma_1` and `asthma_2` below).
+The code for this model has only minor differences from the `asthma_2` script in the Supplemental Materials below, mostly related to the calculation of residual deviance.
 
 ```{r example_10_3_revisited}
 model_code <- "
@@ -369,7 +365,9 @@ summary_10_3[prob_flags, "mean"] %>%
 These results are comparable to those in Table 10.6 (p 209).
 
 
-# `asthma_1`
+# Scripts from Supplemental Materials
+
+## `asthma_1`
 
 Estimating Transition Probabilities
 
@@ -469,32 +467,28 @@ results <- jags(data = data,
 
 smry_asthma_1 <- summary(results)
 
-smry_asthma_1
 ```
 
 
-# `asthma_2`
+## `asthma_2`
 
 Propagating Uncertainty into a Decision Model
 
 
 ```{r asthma_2}
 
-
+model_code <- "
 # Model
 
-
-
-model_code <- "
 model{
-# Data analysis
+  # Data analysis
 	for (tmt in 1:2){										# Treatments tmt=1 (Seretide), tmt=2 (Fluticasone)
 		for (i in 1:4){									  # There are 4 non-absorbing health states
 			r[tmt,i,1:5] ~ dmulti(pi[tmt,i,1:5],n[tmt,i])		# Multinomial data
 			pi[tmt,i,1:5] ~ ddirch(prior[tmt,i,1:5])		    # Dirichlet prior for probs.
 		}
 	}
-# Calculating summaries from a decision model
+  # Calculating summaries from a decision model
 	for (tmt in 1:2){ 
 		for (i in 1:5){ s[tmt,i,1]<- equals(i,1) }  	# Initialise starting state: 1 in STW, 0 in all other states
 		for (i in 1:4){  
@@ -513,7 +507,6 @@ model{
 	}
 		
 }
-
 " %>% textConnection
 
 data$prior <- structure( .Data=rep(1, 2*4*5), .Dim=c(2,4,5))
@@ -542,7 +535,7 @@ initial_values <- list(
   
 )
 
-parameters_to_save <- c("r", "pi", "s", "E", "D", "prob") # What else?
+parameters_to_save <- c("r", "pi", "s", "E", "D", "prob")
 
 
 results <- jags(data = data,
@@ -556,12 +549,10 @@ results <- jags(data = data,
 
 smry_asthma_2 <- summary(results)
 
-smry_asthma_2
-
 ```
 
 
-# `evsyn_markov_book_1`
+## `evsyn_markov_book_1`
 
 Synthesis of Studies Reporting Aggregate and Event History Data
 
@@ -824,7 +815,8 @@ tbl_10_13 %>%
 
 ```
 
-# `evsyn_markov_book_2`
+## `evsyn_markov_book_2`
+
 Including Studies with Treatment Comparisons
 
 When I tried to run the WinBUGS code directly, I got this error:
