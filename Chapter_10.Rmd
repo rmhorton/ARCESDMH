@@ -173,7 +173,6 @@ ttl <- bind_cols(idx_df, tt_long)
 ttl %>% 
   pivot_wider(id_cols=c('Treatment', 'From'), names_from=c("To")) %>%
   as.data.frame %>% 
-  # xtable %>% print(type = "html")
   knitr::kable(., format='html', escape=FALSE)
 
 ```
@@ -468,8 +467,9 @@ results <- jags(data = data,
             n.burnin = 20000,
             n.thin = 2)
 
-summary(results)
+smry_asthma_1 <- summary(results)
 
+smry_asthma_1
 ```
 
 
@@ -542,7 +542,7 @@ initial_values <- list(
   
 )
 
-parameters_to_save <- c("r", "pi", "s", "E", 'D', 'prob') # What else?
+parameters_to_save <- c("r", "pi", "s", "E", "D", "prob") # What else?
 
 
 results <- jags(data = data,
@@ -554,7 +554,9 @@ results <- jags(data = data,
             n.iter = 50000,
             n.burnin = 20000)
 
-summary(results)
+smry_asthma_2 <- summary(results)
+
+smry_asthma_2
 
 ```
 
@@ -651,7 +653,7 @@ model {
     m13[i] ~ dbin(rho,n[i])                  # likelihood for binomial proportion going to state 3
   }
 
-  # Three different ways to summarise random effects model for lambda1, and form transition #rates. 
+  # Three different ways to summarise random effects model for lambda1, and form transition rates. 
   
   # 1. Use population mean, L
   g12[1] <- (1-rho) * exp(L)
@@ -745,7 +747,7 @@ initial_values <- list(
 
 )
 
-parameters_to_save <- c("L", "tau", "rho", "gamma12", "gamma23", "gamma13", "P11", "P12", "P13", "P22", "P23")
+parameters_to_save <- c("L", "tau", "rho", "gamma23", "g12",  "g13", "P11", "P12", "P13", "P22", "P23")
 
 
 results <- jags(data = data,
@@ -757,12 +759,70 @@ results <- jags(data = data,
             n.iter = 50000,
             n.burnin = 20000)
 
-summary(results)
+smry <- summary(results)
 
 # To do: compare to Table 10.11, 10.12, and 10.13
 
 ```
 
+```{r table_10_11}
+
+get_mean_and_CI_for_variable <- function(my_variable, summary_matrix, digits=2){
+  sprintstr <- sprintf("%%0.%df<br/>(%%0.%df, %%0.%df)", digits, digits, digits)
+  r <- summary_matrix[my_variable, ]
+  sprintf(sprintstr, r['mean'], r['2.5%'], r['97.5%'])
+}
+
+c('L', 'tau', 'rho', 'gamma23') %>% 
+  sapply(get_mean_and_CI_for_variable, smry) %>% 
+  as.data.frame %>% 
+  t %>%
+  knitr::kable(., format='html', escape=FALSE, caption="Compare to Table 10.11, p. 221.")
+
+```
+```{r table_10_12}
+
+parameters <- c('g12', 'g13')
+summary_methods <- c('[1]'='Random effects mean, L', 
+               '[2]'='Predictive distribution', 
+               '[3]'='Calibrate to study 15')
+
+get_rows_for_variable <- function(my_variable){
+  paste0(my_variable, names(summary_methods)) %>% sapply(get_mean_and_CI_for_variable, smry, digits=3)
+}
+
+tbl_10_12 <- data.frame('summary method'=summary_methods)
+for (param in parameters){
+  tbl_10_12[param] <- get_rows_for_variable(param)
+}
+
+tbl_10_12 %>%
+  knitr::kable(., format='html', escape=FALSE, caption="Compare to Table 10.12, p. 221.")
+
+
+```
+
+```{r table_10_13}
+
+parameters <- c('P11', 'P12', 'P13', 'P22', 'P23')
+summary_methods <- c('[1]'='Random effects mean, L', 
+               '[2]'='Predictive distribution', 
+               '[3]'='Calibrate to study 15')
+
+get_rows_for_variable <- function(my_variable){
+  paste0(my_variable, names(summary_methods)) %>% sapply(get_mean_and_CI_for_variable, smry, digits=2)
+}
+
+tbl_10_13 <- data.frame('summary method'=summary_methods)
+for (param in parameters){
+  tbl_10_13[param] <- get_rows_for_variable(param)
+}
+
+tbl_10_13 %>%
+  knitr::kable(., format='html', escape=FALSE, caption="Compare to Table 10.13, p. 222.")
+
+
+```
 
 # `evsyn_markov_book_2`
 Including Studies with Treatment Comparisons
@@ -973,7 +1033,7 @@ initial_values <- list(
        loglam1=c(.01,.03,.01,.03,.01,   .01,.03,.01,.01, .03,   .03,.01,.02,.01,.03),loglam1.pred=.03,logh=-1)
 )
 
-parameters_to_save <- c("logh")
+parameters_to_save <- c("h")
 
 
 results <- jags(data = data,
@@ -986,16 +1046,36 @@ results <- jags(data = data,
                 n.burnin = 20000)
 
 
-summary(results)['logh', c('mean', '2.5%', '97.5%')] %>% exp
+summary(results)['h', c('mean', '2.5%', '97.5%')]
+
+Bob_winBUGS_results <- c(mean=0.5205, `2.5%`=0.192, `97.5%`=1.036)
 
 ```
+These results are very close to what I got when I ran the code in WinBUGS.
 
 From p 223: "The posterior mean hazard ratio is 0.525 with 95% credible interval (0.020, 1.04)".
-These results are close except for the lower bound of the CI; could this be a typo in the book (0.20)?
+These results are close except for the lower bound of the CI; this appears to be a typo in the book (maybe the lower bound was supposed to be 0.20)?
 
-# To Do: 
+# Errata
 
-* Enter the code on the following pages: 216-217, 219, 220, 223
-* Compare to the results in the book
-* Compare to the programs from the Supplemental Materials
-* The models from the Supplemental Materials (`evsyn_markov_book_1` and `evsyn_markov_book_2`) seem to be polished quite a bit from the text in the book. Note that they use for "s in 1:15" to step through all 15 studies, rather than in separate little stody-specific loops)
+* Figure 10.1b
+
+  - disease states are "Remission" and "Relapse", but the caption describes them as "remission" and "recurrence".
+  
+  - since individuals can die in either state, there needs to be an edge from Remission to Death.
+
+* Figure 10.1c: The figure shows only two competing disease states ('OK', 'Disability', and 'Dead'), but the caption describes four ('no', 'mild', 'moderate', and 'severe')
+
+* p 214 code
+
+  - for (s in 1:15)
+  
+  - iteration variable is 's', not 'i'
+  
+* p 216 code
+
+  - pi.agg[obs, 1, 2] has multiple errors. Please don't try to type this example in from the book.
+
+* p 220: ... obtain evidence of [of] transition probabilities ...
+
+* p 223: The reported lower bound of the credible interval for h (0.020) does not match the results I got with either JAGS (0.192) or WinBUGS (0.195).
