@@ -1,0 +1,145 @@
+---
+title: 'Chapter 10: Markov models'
+author: "Bob"
+date: "2025-04-29"
+output: html_document
+---
+
+
+Copied from `Chapter_10.Rmd`.
+
+# Example 10.2 revisited (p 203)
+
+
+```{r example_10_2_revisited}
+
+model_code <- "
+model{
+  for (tmt in 1:2) {    # tmt: 1=Seretide, 2=Fluticasone
+    for (i in 1:4){     # four non-absorbing states
+      r[tmt, i, 1:5] ~ dmulti(pi[tmt, i, 1:5], n[tmt, i]) # multinomial data
+      pi[tmt, i, 1:5] ~ ddirch(prior[tmt, i, 1:5])        # Dirichlet prior
+    }
+  }
+}
+"
+
+# We need to do some munging to create an R data structure with the
+# correct dimensions. First we make an R version of the `r` 3d array,
+# using the data as it is printed in the text:
+rr=structure(
+  .Data=c(                    # Seretide
+    210,	 60,	0,	1,	 1,	  # Row 1 (STW)
+     88,	641,	0,	4,	13,	  # Row 2 (UTW)
+      0,		0,	0,	0,	 0,	  # Row 3 (Hex)
+      1,		0,	0,	0,	 1,	  # Row 4 (Pex)
+    
+                              # Fluticasone
+     66,   32,	0,	0,	 2,	  # Row 1 (STW)
+     42,  752,	0,	5,	20,	  # Row 2 (UTW)
+      0,    0,  0,	0,	 0,	  # Row 3 (Hex)
+      0,    4,  0,	1,	 0    # Row 4 (Pex)
+    ), 
+    .Dim=c(5,4,2)             # Matrix dimensions # 2,4,5
+)
+
+# The Seretide matrix is t(r[,,1]), and the Fluticasone matrix is t(r[,,2])
+
+# Now we need to shift the values around to the arrangement JAGS expects. 
+# Start with a 3d array full of placeholder values:
+jr <- structure(
+  .Data=rep(-1, 2*4*5),     # -1 can't really happen
+  .Dim=c(2,4,5)             # Matrix dimensions
+)
+
+# Now copy in the numbers from the R array:
+for (tmt in 1:2){
+  for (i in 1:4){
+    for (j in 1:5){
+      jr[tmt, i, j] <- rr[j, i, tmt]
+    }
+  }
+}
+
+## The row totals need to be swapped and flipped (row major order) to match the `r` array.
+## Since this is 2d data we can just use a matrix:
+jn <- matrix(
+    c(272,746,0,2,
+      100,819,0,5),
+    nrow=2, byrow=TRUE
+)
+
+prior <- structure(           # Dirichlet priors all = 1
+  .Data=rep(1, 2*4*5), 
+	.Dim=c(2,4,5)
+)
+
+```
+
+Work problem in `Stan`. Methods taken from https://github.com/WinVector/Examples/blob/main/MetaAnalysis/Amlodipine/ExaminingMetaAnalysis.qmd .
+
+
+```{r load_libraries, warning=FALSE, message=FALSE}
+library(rstan)
+library(jsonlite)
+```
+
+
+```{r}
+stan_code <- "
+data {
+  int<lower=1> nt;  // treatments: 1=Seretide, 2=Fluticasone
+  int<lower=1> ni;  // four non-absorbing states (sources)
+  int<lower=1> nj;  // five overall states (destinations)
+  array[nt, ni, nj] int<lower=0> r;
+  array[nt, ni] vector<lower=0>[nj] prior;
+}
+parameters {
+  array[nt, ni] simplex[nj] pi;
+}
+model {
+  for (tmt in 1:nt) {    // tmt: 1=Seretide, 2=Fluticasone
+    for (i in 1:ni) {    // four non-absorbing states
+        r[tmt, i, ] ~ multinomial(pi[tmt, i]);    // multinomial data, total infferred from LHS
+        pi[tmt, i] ~ dirichlet(prior[tmt, i]);    // Dirichlet prior
+    }
+  }
+}
+"
+```
+
+```{r}
+stan_data <- list(
+  nt = dim(jr)[[1]],
+  ni = dim(jr)[[2]],
+  nj = dim(jr)[[3]],
+  r = array(jr, dim = dim(jr)),  # make sure array so shape info goes through JSON correctly
+  prior = array(prior, dim = dim(prior))
+)
+```
+
+```{r, warning=FALSE, message=FALSE, results='hide'}
+sample <- stan(
+  model_code = stan_code,  # Stan program
+  data = stan_data,           # named list of data
+  chains = 4,                 # number of Markov chains, 1 to debug
+  warmup = 2000,              # number of warmup iterations per chain
+  iter = 4000,                # total number of iterations per chain
+  cores = 4,                  # number of cores (could use one per chain)
+  refresh = 0,                # no progress shown
+)
+```
+
+```{r}
+sample
+```
+
+```{r}
+sample |>
+  as.data.frame() |>
+  head() |>
+  knitr::kable()
+```
+
+
+
