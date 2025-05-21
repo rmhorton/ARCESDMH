@@ -2,7 +2,7 @@
 title: 'Chapter 10: Markov models'
 author: "Bob"
 date: "2025-04-29"
-output: html_document
+output: github_document
 ---
 
 
