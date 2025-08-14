@@ -6,9 +6,8 @@ Code that needed to be tweaked to run in JAGS:
 
 * Chapter_04: There were 'Attempt to redefine node' errors in a couple of models. I moved the offending lines into data blocks, as recommended on [stackoverflow](https://stackoverflow.com/questions/78502051/how-to-convert-winbugs-code-into-jags-r-code).
 * Chapter_09: `rank` function; multi-dimensional data reformatted as list of matrixes.
+* Chapter_10: 'Attempt to redefine node' (use data blocks); Invalid parent values: Most of these issues are from 3d arrays in R being indexed differently than in JAGS. Divide by zero errors were worked around by adding a vanishingly small quantity to the denominator.
 * Chapter_11: 'Attempt to redefine node' errors solved with data blocks.
 * Chapter 12: `ranked` function.
-* Chapter_10: 'Attempt to redefine node' (use data blocks); Invalid parent values: Most of these issues are from 3d arrays in R being indexed differently than in JAGS. Divide by zero errors were worked around by adding a vanishingly small quantity to the denominator.
-
 
 Note that the coda package has a 'bugs2jags' function that should obviate much of the 3d array munging I did in these scripts.
